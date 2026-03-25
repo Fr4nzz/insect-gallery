@@ -19,6 +19,7 @@ MANIFEST_BIOTROVE = BASE / "manifest_biotrove.json"
 MANIFEST_GBIF = BASE / "manifest_gbif_gapfill.json"
 AUDIT_RESULTS = BASE / "biotrove_audit" / "audit_results.json"
 CURATION_GBIF = BASE / "curation_gbif_gapfill.json"
+CURATION_BIOTROVE_DIR = BASE  # curation_biotrove_*_checkpoint.json files
 
 OUT_DIR = Path("/home/ubuntu/franz/repos/insect-gallery/public/data")
 
@@ -112,6 +113,35 @@ def main():
     print(f"    Audit lookup: {len(audit_lookup)} entries")
     print(f"    GBIF curation lookup: {len(gbif_curation_lookup)} entries")
 
+    # Load current BioTrove curation results (from gemini-3-flash-preview runs)
+    biotrove_curation_lookup = {}
+    for cp_file in sorted(CURATION_BIOTROVE_DIR.glob("curation_biotrove_*_checkpoint.json")):
+        cp_data = load_json(cp_file)
+        for rel_key, result in cp_data.items():
+            # rel_key = "Order/Family/filename.jpg" -> extract photo_id from filename
+            filename = os.path.basename(rel_key)
+            photo_id = os.path.splitext(filename)[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+
+            label = result.get("label", "keep")
+            if label == "keep":
+                status = "curated_keep"
+            elif label.startswith("drop"):
+                status = "curated_drop"
+            else:
+                status = "curated_review"
+
+            biotrove_curation_lookup[photo_id] = {
+                "curation_status": status,
+                "curation_issues": label if label != "keep" else "",
+                "curation_confidence": result.get("confidence"),
+                "life_stage": "",
+                "model": result.get("model", "gemini-3-flash-preview"),
+            }
+    if biotrove_curation_lookup:
+        print(f"    BioTrove full curation lookup: {len(biotrove_curation_lookup)} entries")
+
     # Process BioTrove manifest
     print(f"\n  Processing {len(biotrove)} BioTrove entries...")
     all_records = []
@@ -121,7 +151,8 @@ def main():
         photo_id = str(entry.get("photo_id", entry.get("gbif_id", "")))
         url = entry.get("url", "")
 
-        curation = audit_lookup.get(photo_id, None)
+        # Prefer full curation (gemini-3-flash-preview) over old audit (flash-lite)
+        curation = biotrove_curation_lookup.get(photo_id) or audit_lookup.get(photo_id)
 
         record = {
             "id": photo_id,

@@ -42,11 +42,17 @@
           <label>Curation</label>
           <select v-model="selectedCuration">
             <option value="">All</option>
-            <option value="issues">With Issues Only</option>
-            <option value="drop">Dropped</option>
-            <option value="review">Needs Review</option>
-            <option value="keep">Curated/Audited Keep</option>
-            <option value="not_curated">Not Curated</option>
+            <option value="keep">Keep ({{ curationCounts.keep || 0 }})</option>
+            <option value="drop">All Dropped ({{ curationCounts.drop || 0 }})</option>
+            <option value="drop_larva">Larvae ({{ curationCounts.drop_larva || 0 }})</option>
+            <option value="drop_pupa">Pupae ({{ curationCounts.drop_pupa || 0 }})</option>
+            <option value="drop_habitat">Habitat shots ({{ curationCounts.drop_habitat || 0 }})</option>
+            <option value="drop_quality">Low quality ({{ curationCounts.drop_quality || 0 }})</option>
+            <option value="drop_not_insect">Not insect ({{ curationCounts.drop_not_insect || 0 }})</option>
+            <option value="drop_multiple">Multiple ({{ curationCounts.drop_multiple || 0 }})</option>
+            <option value="drop_dead">Dead/damaged ({{ curationCounts.drop_dead || 0 }})</option>
+            <option value="review">Needs Review ({{ curationCounts.review || 0 }})</option>
+            <option value="not_curated">Not Curated ({{ curationCounts.not_curated || 0 }})</option>
           </select>
         </div>
 
@@ -66,6 +72,9 @@
     </div>
 
     <div v-if="loading" class="loading">Loading dataset...</div>
+    <div v-else-if="dataset.length < (summary.sampled_images || 0)" class="loading-progress">
+      Loading images: {{ dataset.length.toLocaleString() }} / {{ (summary.sampled_images || 0).toLocaleString() }}
+    </div>
 
     <div v-else-if="viewMode === 'grid'" class="image-grid">
       <div v-for="img in visibleImages" :key="img.id" class="image-card" :class="cardClass(img)">
@@ -165,12 +174,24 @@ const sortAsc = ref(true)
 
 onMounted(async () => {
   try {
-    const [dataRes, summaryRes] = await Promise.all([
-      fetch(import.meta.env.BASE_URL + 'data/dataset.json'),
-      fetch(import.meta.env.BASE_URL + 'data/dataset_summary.json'),
-    ])
-    dataset.value = await dataRes.json()
+    // Load summary first (tiny, instant)
+    const summaryRes = await fetch(import.meta.env.BASE_URL + 'data/dataset_summary.json')
     summary.value = await summaryRes.json()
+
+    // Stream dataset in chunks so UI renders progressively
+    const dataRes = await fetch(import.meta.env.BASE_URL + 'data/dataset.json')
+    const text = await dataRes.text()
+    const allData = JSON.parse(text)
+
+    // Load in batches of 2000 with microtask yields
+    const BATCH = 2000
+    for (let i = 0; i < allData.length; i += BATCH) {
+      dataset.value.push(...allData.slice(i, i + BATCH))
+      if (i === 0) loading.value = false  // Show first batch immediately
+      if (i + BATCH < allData.length) {
+        await new Promise(r => setTimeout(r, 0))  // Yield to render
+      }
+    }
   } catch (e) {
     console.error('Failed to load dataset:', e)
   }
@@ -188,22 +209,48 @@ const availableFamilies = computed(() => {
   return fbo[selectedOrder.value] || {}
 })
 
+const curationCounts = computed(() => {
+  const counts = {}
+  for (const img of dataset.value) {
+    const status = img.curation_status || 'not_curated'
+    const issue = img.curation_issues || ''
+    // Count by specific drop reason
+    if (issue.startsWith('drop_')) {
+      counts[issue] = (counts[issue] || 0) + 1
+      counts.drop = (counts.drop || 0) + 1
+    } else if (status.includes('drop')) {
+      counts.drop = (counts.drop || 0) + 1
+    } else if (status.includes('keep') && status !== 'not_curated') {
+      counts.keep = (counts.keep || 0) + 1
+    } else if (status.includes('review')) {
+      counts.review = (counts.review || 0) + 1
+    } else {
+      counts.not_curated = (counts.not_curated || 0) + 1
+    }
+  }
+  return counts
+})
+
 const filteredImages = computed(() => {
   let imgs = dataset.value
   if (selectedOrder.value) imgs = imgs.filter(i => i.order === selectedOrder.value)
   if (selectedFamily.value) imgs = imgs.filter(i => i.family === selectedFamily.value)
   if (selectedSource.value) imgs = imgs.filter(i => i.source === selectedSource.value)
   if (selectedCuration.value) {
-    if (selectedCuration.value === 'issues') {
-      imgs = imgs.filter(i => i.curation_issues)
-    } else if (selectedCuration.value === 'drop') {
-      imgs = imgs.filter(i => i.curation_status && i.curation_status.includes('drop'))
-    } else if (selectedCuration.value === 'review') {
-      imgs = imgs.filter(i => i.curation_status && i.curation_status.includes('review'))
-    } else if (selectedCuration.value === 'keep') {
-      imgs = imgs.filter(i => i.curation_status && i.curation_status.includes('keep') && i.curation_status !== 'not_curated')
+    const v = selectedCuration.value
+    if (v === 'drop') {
+      imgs = imgs.filter(i => (i.curation_status || '').includes('drop'))
+    } else if (v === 'keep') {
+      imgs = imgs.filter(i => (i.curation_status || '').includes('keep') && i.curation_status !== 'not_curated')
+    } else if (v === 'review') {
+      imgs = imgs.filter(i => (i.curation_status || '').includes('review'))
+    } else if (v === 'not_curated') {
+      imgs = imgs.filter(i => !i.curation_status || i.curation_status === 'not_curated')
+    } else if (v.startsWith('drop_')) {
+      // Specific drop reason (drop_larva, drop_habitat, etc.)
+      imgs = imgs.filter(i => i.curation_issues === v)
     } else {
-      imgs = imgs.filter(i => i.curation_status === selectedCuration.value)
+      imgs = imgs.filter(i => i.curation_status === v)
     }
   }
   if (searchText.value) {
@@ -271,6 +318,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .view-controls button.active { background: #2d6a4f; color: white; border-color: #2d6a4f; }
 
 .loading { text-align: center; padding: 3rem; font-size: 1.2rem; color: #666; }
+.loading-progress { text-align: center; padding: 0.5rem; font-size: 0.8rem; color: #999; background: #f8f8f8; }
 
 .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; padding: 1.5rem 2rem; }
 .image-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s; }

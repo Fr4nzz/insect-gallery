@@ -1,6 +1,6 @@
 {
   "total_images": 186704,
-  "sampled_images": 10000,
+  "sampled_images": 23700,
   "orders": {
     "Lepidoptera": 45151,
     "Coleoptera": 41735,
@@ -265,42 +265,40 @@
     "gbif": 877
   },
   "curation_status": {
-    "not_curated": 185608,
-    "audited_keep": 220,
-    "audited_review": 2,
-    "audited_drop": 3,
-    "curated_drop": 41,
-    "curated_keep": 829,
-    "curated_review": 1
-  },
-  "sample_orders": {
-    "Lepidoptera": 2284,
-    "Coleoptera": 2213,
-    "Diptera": 2038,
-    "Hemiptera": 1567,
-    "Hymenoptera": 450,
-    "Orthoptera": 335,
-    "Neuroptera": 193,
-    "Mantodea": 169,
-    "Blattodea": 160,
-    "Odonata": 153,
-    "Dermaptera": 135,
-    "Trichoptera": 111,
-    "Phasmida": 105,
-    "Ephemeroptera": 72,
-    "Plecoptera": 15
-  },
-  "sample_sources": {
-    "biotrove": 9128,
-    "gbif": 872
-  },
-  "sample_curation_status": {
-    "not_curated": 8904,
-    "audited_keep": 220,
-    "curated_keep": 829,
-    "curated_drop": 41,
-    "curated_review": 1,
+    "not_curated": 163004,
+    "audited_keep": 198,
+    "curated_keep": 13379,
+    "curated_drop": 5761,
+    "curated_review": 4357,
     "audited_review": 2,
     "audited_drop": 3
+  },
+  "sample_orders": {
+    "Hemiptera": 16629,
+    "Lepidoptera": 6123,
+    "Diptera": 666,
+    "Coleoptera": 241,
+    "Orthoptera": 9,
+    "Hymenoptera": 7,
+    "Mantodea": 7,
+    "Trichoptera": 4,
+    "Blattodea": 4,
+    "Neuroptera": 4,
+    "Odonata": 3,
+    "Ephemeroptera": 1,
+    "Dermaptera": 1,
+    "Phasmida": 1
+  },
+  "sample_sources": {
+    "biotrove": 22829,
+    "gbif": 871
+  },
+  "sample_curation_status": {
+    "curated_keep": 13379,
+    "curated_review": 4357,
+    "curated_drop": 5761,
+    "audited_keep": 198,
+    "audited_drop": 3,
+    "audited_review": 2
   }
 }
