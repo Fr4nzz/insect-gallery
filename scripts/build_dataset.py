@@ -236,15 +236,32 @@ def main():
         "curation_status": dict(curation_counts),
     }
 
-    # Sample dataset: all curated + random from the rest
+    # Sample dataset: all curated + ensure every order is represented
+    # Group by order for balanced sampling
     curated_ids = {r["id"] for r in curated_records}
-    uncurated = [r for r in all_records if r["id"] not in curated_ids]
-
-    remaining_budget = max(0, SAMPLE_TARGET - len(curated_records))
     random.seed(SEED)
-    sampled_uncurated = random.sample(uncurated, min(remaining_budget, len(uncurated)))
 
-    sampled = curated_records + sampled_uncurated
+    # Start with all curated records
+    sampled_ids = set(r["id"] for r in curated_records)
+    sampled = list(curated_records)
+
+    # Ensure minimum representation per order (100 images each)
+    MIN_PER_ORDER = 100
+    uncurated_by_order = defaultdict(list)
+    for r in all_records:
+        if r["id"] not in sampled_ids:
+            uncurated_by_order[r["order"]].append(r)
+
+    sampled_order_counts = Counter(r["order"] for r in sampled)
+    for order, uncurated_list in uncurated_by_order.items():
+        current = sampled_order_counts.get(order, 0)
+        need = max(0, MIN_PER_ORDER - current)
+        if need > 0:
+            extra = random.sample(uncurated_list, min(need, len(uncurated_list)))
+            sampled.extend(extra)
+            for r in extra:
+                sampled_ids.add(r["id"])
+
     random.shuffle(sampled)
 
     summary["sampled_images"] = len(sampled)
