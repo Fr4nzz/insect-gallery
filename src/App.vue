@@ -57,6 +57,25 @@
         </div>
 
         <div class="filter-group">
+          <label>SAM3 conf</label>
+          <select v-model="selectedSam3">
+            <option value="">All</option>
+            <option value="kept">≥ threshold (kept)</option>
+            <option value="low">below threshold</option>
+            <option value="missing">no SAM3 result</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Pro rescued?</label>
+          <select v-model="selectedProRescue">
+            <option value="">All</option>
+            <option value="rescued">Pro rescued</option>
+            <option value="not_rescued">Not rescued</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Search</label>
           <input type="text" v-model="searchText" placeholder="Species, genus..." />
         </div>
@@ -82,6 +101,12 @@
           <img :src="img.thumbnail_url" :alt="img.scientific_name || img.family" loading="lazy" @error="onImgError($event)" />
           <div v-if="img.curation_status && img.curation_status !== 'not_curated'" class="curation-badge" :class="img.curation_status">
             {{ badgeText(img.curation_status) }}
+          </div>
+          <div v-if="img.pro_recurated" class="pro-badge" title="Rescued by Gemini 3.1 Pro re-curation">PRO</div>
+          <div v-if="img.sam3_confidence !== null && img.sam3_confidence !== undefined" class="sam3-badge"
+               :class="{ low: img.sam3_confidence < 0.5 }"
+               :title="`SAM3 insect confidence: ${(img.sam3_confidence*100).toFixed(0)}%`">
+            S3 {{ (img.sam3_confidence*100).toFixed(0) }}%
           </div>
         </div>
         <div class="card-info">
@@ -145,7 +170,15 @@
             <tr><td>Curation</td><td>{{ modalImage.curation_status }}</td></tr>
             <tr v-if="modalImage.curation_issues"><td>Issues</td><td>{{ modalImage.curation_issues }}</td></tr>
             <tr v-if="modalImage.life_stage"><td>Life Stage</td><td>{{ modalImage.life_stage }}</td></tr>
-            <tr v-if="modalImage.curation_confidence"><td>Confidence</td><td>{{ modalImage.curation_confidence }}</td></tr>
+            <tr v-if="modalImage.curation_confidence"><td>Gemini conf</td><td>{{ modalImage.curation_confidence }}</td></tr>
+            <tr v-if="modalImage.pro_recurated"><td>Pro re-curate</td><td>rescued (Flash had labeled "{{ modalImage.flash_label_was }}")</td></tr>
+            <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
+              <td>SAM3 insect conf</td>
+              <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
+                  <span v-if="modalImage.sam3_kept">— kept for training</span>
+                  <span v-else>— sent to OOD pool</span>
+              </td>
+            </tr>
             <tr><td>ID</td><td>{{ modalImage.id }}</td></tr>
           </table>
           <a :href="modalImage.url" target="_blank" class="view-full">View Full Image</a>
@@ -165,6 +198,8 @@ const selectedOrder = ref('')
 const selectedFamily = ref('')
 const selectedSource = ref('')
 const selectedCuration = ref('')
+const selectedSam3 = ref('')
+const selectedProRescue = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -253,6 +288,18 @@ const filteredImages = computed(() => {
       imgs = imgs.filter(i => i.curation_status === v)
     }
   }
+  if (selectedSam3.value === 'kept') {
+    imgs = imgs.filter(i => i.sam3_kept === true)
+  } else if (selectedSam3.value === 'low') {
+    imgs = imgs.filter(i => i.sam3_kept === false)
+  } else if (selectedSam3.value === 'missing') {
+    imgs = imgs.filter(i => i.sam3_confidence === null || i.sam3_confidence === undefined)
+  }
+  if (selectedProRescue.value === 'rescued') {
+    imgs = imgs.filter(i => i.pro_recurated === true)
+  } else if (selectedProRescue.value === 'not_rescued') {
+    imgs = imgs.filter(i => i.pro_recurated !== true)
+  }
   if (searchText.value) {
     const q = searchText.value.toLowerCase()
     imgs = imgs.filter(i =>
@@ -333,6 +380,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .curation-badge.audited_keep, .curation-badge.curated_keep { background: #28a745; }
 .curation-badge.audited_drop, .curation-badge.curated_drop { background: #dc3545; }
 .curation-badge.audited_review, .curation-badge.curated_review { background: #ffc107; color: #333; }
+
+.pro-badge {
+  position: absolute; top: 0.4rem; left: 0.4rem;
+  padding: 0.15rem 0.45rem; border-radius: 3px;
+  font-size: 0.65rem; font-weight: 700;
+  background: #6f42c1; color: white;
+  letter-spacing: 0.04em;
+}
+.sam3-badge {
+  position: absolute; bottom: 0.4rem; right: 0.4rem;
+  padding: 0.15rem 0.45rem; border-radius: 3px;
+  font-size: 0.65rem; font-weight: 700;
+  background: #2e7be8; color: white;
+}
+.sam3-badge.low {
+  background: #888;
+  opacity: 0.85;
+}
 
 .card-info { padding: 0.5rem 0.6rem; }
 .taxon-line { display: flex; gap: 0.4rem; align-items: center; }

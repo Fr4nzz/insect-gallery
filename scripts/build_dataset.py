@@ -133,15 +133,38 @@ def main():
             else:
                 status = "curated_review"
 
+            # Was this image rescued by Pro re-curation?
+            pro = result.get("pro_recurate")
             biotrove_curation_lookup[photo_id] = {
                 "curation_status": status,
                 "curation_issues": label if label != "keep" else "",
                 "curation_confidence": result.get("confidence"),
                 "life_stage": "",
                 "model": result.get("model", "gemini-3-flash-preview"),
+                "pro_recurated": bool(pro),
+                "pro_label": pro.get("pro_label") if pro else None,
+                "flash_label_was": pro.get("flash_label_was") if pro else None,
+                "rel_key": rel_key,
             }
     if biotrove_curation_lookup:
         print(f"    BioTrove full curation lookup: {len(biotrove_curation_lookup)} entries")
+
+    # Load SAM3 confidence per image (if Phase B has been run)
+    sam3_path = BASE / "sam3_crops_summary.json"
+    sam3_lookup = {}
+    if sam3_path.exists():
+        sam3_data = load_json(sam3_path)
+        for rel_key, entry in sam3_data.items():
+            filename = os.path.basename(rel_key)
+            photo_id = os.path.splitext(filename)[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            sam3_lookup[photo_id] = {
+                "sam3_confidence": entry.get("best_conf", 0.0),
+                "sam3_kept": entry.get("kept", False),
+                "sam3_reason": entry.get("reason"),
+            }
+        print(f"    SAM3 confidence lookup: {len(sam3_lookup)} entries")
 
     # Process BioTrove manifest
     print(f"\n  Processing {len(biotrove)} BioTrove entries...")
@@ -155,6 +178,7 @@ def main():
         # Prefer full curation (gemini-3-flash-preview) over old audit (flash-lite)
         curation = biotrove_curation_lookup.get(photo_id) or audit_lookup.get(photo_id)
 
+        sam3 = sam3_lookup.get(photo_id, {})
         record = {
             "id": photo_id,
             "url": url,
@@ -170,6 +194,10 @@ def main():
             "curation_issues": curation["curation_issues"] if curation else "",
             "curation_confidence": curation["curation_confidence"] if curation else None,
             "life_stage": curation["life_stage"] if curation else "",
+            "pro_recurated": curation.get("pro_recurated", False) if curation else False,
+            "flash_label_was": curation.get("flash_label_was") if curation else None,
+            "sam3_confidence": sam3.get("sam3_confidence"),
+            "sam3_kept": sam3.get("sam3_kept"),
         }
 
         all_records.append(record)
@@ -183,6 +211,7 @@ def main():
         url = entry.get("url", "")
 
         curation = gbif_curation_lookup.get(gbif_id, None)
+        sam3 = sam3_lookup.get(gbif_id, {})
 
         # GBIF entries don't have scientific_name/common_name fields
         species = entry.get("species", "")
@@ -203,6 +232,8 @@ def main():
             "curation_issues": curation["curation_issues"] if curation else "",
             "curation_confidence": curation["curation_confidence"] if curation else None,
             "life_stage": curation["life_stage"] if curation else "",
+            "sam3_confidence": sam3.get("sam3_confidence"),
+            "sam3_kept": sam3.get("sam3_kept"),
         }
 
         all_records.append(record)
