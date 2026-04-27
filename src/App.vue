@@ -67,11 +67,29 @@
         </div>
 
         <div class="filter-group">
-          <label>Pro rescued?</label>
-          <select v-model="selectedProRescue">
-            <option value="">All</option>
-            <option value="rescued">Pro rescued</option>
-            <option value="not_rescued">Not rescued</option>
+          <label>Curation model</label>
+          <select v-model="selectedModel">
+            <option value="">All models</option>
+            <option value="flash">Flash only (Pro never reviewed)</option>
+            <option value="pro_any">Pro reviewed (any verdict)</option>
+            <option value="pro_rescued">Pro rescued (drop → keep)</option>
+            <option value="pro_confirmed_drop">Pro confirmed drop</option>
+            <option value="pro_relabeled">Pro changed drop reason</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Pro verdict</label>
+          <select v-model="selectedProVerdict">
+            <option value="">Any</option>
+            <option value="keep">Pro said keep</option>
+            <option value="drop_larva">Pro said drop_larva</option>
+            <option value="drop_pupa">Pro said drop_pupa</option>
+            <option value="drop_habitat">Pro said drop_habitat</option>
+            <option value="drop_quality">Pro said drop_quality</option>
+            <option value="drop_not_insect">Pro said drop_not_insect</option>
+            <option value="drop_multiple">Pro said drop_multiple</option>
+            <option value="drop_dead">Pro said drop_dead</option>
           </select>
         </div>
 
@@ -102,7 +120,15 @@
           <div v-if="img.curation_status && img.curation_status !== 'not_curated'" class="curation-badge" :class="img.curation_status">
             {{ badgeText(img.curation_status) }}
           </div>
-          <div v-if="img.pro_recurated" class="pro-badge" title="Rescued by Gemini 3.1 Pro re-curation">PRO</div>
+          <div v-if="img.pro_reviewed" class="pro-badge"
+               :class="{
+                 rescued: img.pro_outcome === 'rescued',
+                 confirmed: img.pro_outcome === 'confirmed_drop',
+                 relabeled: img.pro_outcome === 'relabeled_drop',
+               }"
+               :title="proBadgeTitle(img)">
+            {{ proBadgeLabel(img) }}
+          </div>
           <div v-if="img.sam3_confidence !== null && img.sam3_confidence !== undefined" class="sam3-badge"
                :class="{ low: img.sam3_confidence < 0.5 }"
                :title="`SAM3 insect confidence: ${(img.sam3_confidence*100).toFixed(0)}%`">
@@ -170,8 +196,34 @@
             <tr><td>Curation</td><td>{{ modalImage.curation_status }}</td></tr>
             <tr v-if="modalImage.curation_issues"><td>Issues</td><td>{{ modalImage.curation_issues }}</td></tr>
             <tr v-if="modalImage.life_stage"><td>Life Stage</td><td>{{ modalImage.life_stage }}</td></tr>
+            <tr v-if="modalImage.curation_model">
+              <td>Curation model</td>
+              <td>{{ modalImage.curation_model }}</td>
+            </tr>
             <tr v-if="modalImage.curation_confidence"><td>Gemini conf</td><td>{{ modalImage.curation_confidence }}</td></tr>
-            <tr v-if="modalImage.pro_recurated"><td>Pro re-curate</td><td>rescued (Flash had labeled "{{ modalImage.flash_label_was }}")</td></tr>
+            <tr v-if="modalImage.pro_reviewed">
+              <td>Pro outcome</td>
+              <td>
+                <span v-if="modalImage.pro_outcome === 'rescued'" style="color:#28a745; font-weight:600">
+                  RESCUED — Flash had labeled "{{ modalImage.flash_label_was }}"
+                </span>
+                <span v-else-if="modalImage.pro_outcome === 'confirmed_drop'">
+                  Confirmed drop "{{ modalImage.pro_label }}" (Flash also said "{{ modalImage.flash_label_was }}")
+                </span>
+                <span v-else-if="modalImage.pro_outcome === 'relabeled_drop'">
+                  Relabeled: Flash said "{{ modalImage.flash_label_was }}" → Pro said "{{ modalImage.pro_label }}"
+                </span>
+                <span v-else>Reviewed</span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.pro_confidence !== null && modalImage.pro_confidence !== undefined">
+              <td>Pro conf</td>
+              <td>{{ modalImage.pro_confidence }}</td>
+            </tr>
+            <tr v-if="modalImage.pro_reason">
+              <td>Pro reason</td>
+              <td><em>{{ modalImage.pro_reason }}</em></td>
+            </tr>
             <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
               <td>SAM3 insect conf</td>
               <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
@@ -199,7 +251,8 @@ const selectedFamily = ref('')
 const selectedSource = ref('')
 const selectedCuration = ref('')
 const selectedSam3 = ref('')
-const selectedProRescue = ref('')
+const selectedModel = ref('')
+const selectedProVerdict = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -295,10 +348,19 @@ const filteredImages = computed(() => {
   } else if (selectedSam3.value === 'missing') {
     imgs = imgs.filter(i => i.sam3_confidence === null || i.sam3_confidence === undefined)
   }
-  if (selectedProRescue.value === 'rescued') {
-    imgs = imgs.filter(i => i.pro_recurated === true)
-  } else if (selectedProRescue.value === 'not_rescued') {
-    imgs = imgs.filter(i => i.pro_recurated !== true)
+  if (selectedModel.value === 'flash') {
+    imgs = imgs.filter(i => i.pro_reviewed !== true && i.curation_status !== 'not_curated')
+  } else if (selectedModel.value === 'pro_any') {
+    imgs = imgs.filter(i => i.pro_reviewed === true)
+  } else if (selectedModel.value === 'pro_rescued') {
+    imgs = imgs.filter(i => i.pro_outcome === 'rescued')
+  } else if (selectedModel.value === 'pro_confirmed_drop') {
+    imgs = imgs.filter(i => i.pro_outcome === 'confirmed_drop')
+  } else if (selectedModel.value === 'pro_relabeled') {
+    imgs = imgs.filter(i => i.pro_outcome === 'relabeled_drop')
+  }
+  if (selectedProVerdict.value) {
+    imgs = imgs.filter(i => i.pro_label === selectedProVerdict.value)
   }
   if (searchText.value) {
     const q = searchText.value.toLowerCase()
@@ -337,6 +399,26 @@ function badgeText(status) {
   if (status.includes('review')) return 'REVIEW'
   if (status.includes('keep') && status !== 'not_curated') return 'OK'
   return ''
+}
+
+function proBadgeLabel(img) {
+  if (img.pro_outcome === 'rescued') return 'PRO ✓'
+  if (img.pro_outcome === 'confirmed_drop') return 'PRO ✗'
+  if (img.pro_outcome === 'relabeled_drop') return 'PRO ↺'
+  return 'PRO'
+}
+
+function proBadgeTitle(img) {
+  if (img.pro_outcome === 'rescued') {
+    return `Pro RESCUED — Flash had labeled "${img.flash_label_was}" but Pro relabeled to keep`
+  }
+  if (img.pro_outcome === 'confirmed_drop') {
+    return `Pro confirmed Flash's drop label "${img.flash_label_was}"`
+  }
+  if (img.pro_outcome === 'relabeled_drop') {
+    return `Pro changed drop reason: Flash said "${img.flash_label_was}" → Pro said "${img.pro_label}"`
+  }
+  return 'Reviewed by Gemini 3.1 Pro'
 }
 
 function openModal(img) { modalImage.value = img }
@@ -388,6 +470,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   background: #6f42c1; color: white;
   letter-spacing: 0.04em;
 }
+.pro-badge.rescued { background: #28a745; }     /* green = Pro saved it */
+.pro-badge.confirmed { background: #6c757d; }   /* gray = Pro agreed it's a drop */
+.pro-badge.relabeled { background: #d97706; }   /* orange = Pro changed reason */
 .sam3-badge {
   position: absolute; bottom: 0.4rem; right: 0.4rem;
   padding: 0.15rem 0.45rem; border-radius: 3px;

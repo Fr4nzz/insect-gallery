@@ -133,16 +133,37 @@ def main():
             else:
                 status = "curated_review"
 
-            # Was this image rescued by Pro re-curation?
+            # Was this image touched by Pro re-curation?
             pro = result.get("pro_recurate")
+            # Determine the "authoritative" model for the current label:
+            #   - If Pro reviewed this image, Pro is authoritative (rescued or confirmed drop)
+            #   - Otherwise the original Flash verdict stands
+            if pro:
+                # Was the current label changed by Pro? (rescued: drop_X -> keep,
+                # or relabeled: drop_X -> drop_Y)
+                flash_was = pro.get("flash_label_was")
+                if label == "keep" and flash_was and flash_was.startswith("drop"):
+                    pro_outcome = "rescued"           # Pro promoted to keep
+                elif flash_was and label != flash_was:
+                    pro_outcome = "relabeled_drop"    # Pro changed drop reason
+                else:
+                    pro_outcome = "confirmed_drop"    # Pro agreed with Flash
+                authoritative_model = "gemini-3.1-pro-preview"
+            else:
+                pro_outcome = None
+                authoritative_model = "gemini-3-flash-preview"
+
             biotrove_curation_lookup[photo_id] = {
                 "curation_status": status,
                 "curation_issues": label if label != "keep" else "",
                 "curation_confidence": result.get("confidence"),
                 "life_stage": "",
-                "model": result.get("model", "gemini-3-flash-preview"),
-                "pro_recurated": bool(pro),
-                "pro_label": pro.get("pro_label") if pro else None,
+                "curation_model": authoritative_model,
+                "pro_reviewed": bool(pro),
+                "pro_outcome": pro_outcome,                                  # rescued / relabeled_drop / confirmed_drop / null
+                "pro_label": pro.get("pro_label") if pro else None,          # what Pro said (keep, drop_X, ...)
+                "pro_confidence": pro.get("pro_confidence") if pro else None,
+                "pro_reason": pro.get("pro_reason") if pro else None,        # short text justification
                 "flash_label_was": pro.get("flash_label_was") if pro else None,
                 "rel_key": rel_key,
             }
@@ -194,7 +215,12 @@ def main():
             "curation_issues": curation["curation_issues"] if curation else "",
             "curation_confidence": curation["curation_confidence"] if curation else None,
             "life_stage": curation["life_stage"] if curation else "",
-            "pro_recurated": curation.get("pro_recurated", False) if curation else False,
+            "curation_model": curation.get("curation_model") if curation else None,
+            "pro_reviewed": curation.get("pro_reviewed", False) if curation else False,
+            "pro_outcome": curation.get("pro_outcome") if curation else None,
+            "pro_label": curation.get("pro_label") if curation else None,
+            "pro_confidence": curation.get("pro_confidence") if curation else None,
+            "pro_reason": curation.get("pro_reason") if curation else None,
             "flash_label_was": curation.get("flash_label_was") if curation else None,
             "sam3_confidence": sam3.get("sam3_confidence"),
             "sam3_kept": sam3.get("sam3_kept"),
