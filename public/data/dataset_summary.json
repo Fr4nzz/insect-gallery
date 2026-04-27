@@ -265,40 +265,35 @@
     "gbif": 877
   },
   "curation_status": {
-    "curated_keep": 116423,
-    "curated_drop": 29790,
-    "not_curated": 40441,
-    "audited_keep": 46,
-    "audited_review": 1,
-    "audited_drop": 2,
+    "curated_keep": 147450,
+    "curated_drop": 38031,
+    "not_curated": 1221,
+    "audited_keep": 1,
     "curated_review": 1
   },
   "sample_orders": {
-    "Hemiptera": 12685,
-    "Coleoptera": 8549,
-    "Diptera": 7866,
-    "Hymenoptera": 2413,
-    "Lepidoptera": 1901,
-    "Orthoptera": 1450,
-    "Blattodea": 1426,
-    "Mantodea": 1080,
-    "Dermaptera": 546,
-    "Odonata": 505,
-    "Neuroptera": 481,
-    "Plecoptera": 409,
-    "Ephemeroptera": 275,
-    "Phasmida": 234,
-    "Trichoptera": 180
+    "Hemiptera": 11051,
+    "Lepidoptera": 9582,
+    "Coleoptera": 6031,
+    "Diptera": 5884,
+    "Hymenoptera": 1951,
+    "Blattodea": 1237,
+    "Orthoptera": 1147,
+    "Mantodea": 887,
+    "Dermaptera": 406,
+    "Plecoptera": 387,
+    "Odonata": 366,
+    "Neuroptera": 321,
+    "Ephemeroptera": 304,
+    "Phasmida": 241,
+    "Trichoptera": 205
   },
   "sample_sources": {
-    "biotrove": 39669,
-    "gbif": 331
+    "biotrove": 39910,
+    "gbif": 90
   },
   "sample_curation_status": {
-    "curated_keep": 10164,
-    "curated_drop": 29790,
-    "audited_keep": 43,
-    "audited_review": 1,
-    "audited_drop": 2
+    "curated_drop": 38031,
+    "curated_keep": 1969
   }
 }
