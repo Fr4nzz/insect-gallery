@@ -23,7 +23,8 @@ CURATION_BIOTROVE_DIR = BASE  # curation_biotrove_*_checkpoint.json files
 
 OUT_DIR = Path("/home/ubuntu/franz/repos/insect-gallery/public/data")
 
-SAMPLE_TARGET = 10_000
+SAMPLE_TARGET = 40_000      # total sample size cap (keeps page load fast)
+KEEPS_PER_FAMILY = 30       # cap "keep" samples per family (prevents Lepidoptera dominance)
 SEED = 42
 
 
@@ -236,14 +237,35 @@ def main():
         "curation_status": dict(curation_counts),
     }
 
-    # Sample dataset: all curated + ensure every order is represented
-    # Group by order for balanced sampling
-    curated_ids = {r["id"] for r in curated_records}
+    # Sample dataset
+    # Strategy:
+    #   1. Keep ALL "drop_*" curation records — these are the interesting ones to
+    #      review (potential mislabels, OOD candidates, life-stage issues). Always
+    #      reviewable in full.
+    #   2. Sample "keep" records, capped at KEEPS_PER_FAMILY per family so that
+    #      one giant family (e.g. Lepidoptera Noctuidae) doesn't dominate.
+    #   3. Add uncurated samples only to ensure MIN_PER_ORDER coverage of orders
+    #      that haven't been curated yet.
+    #   4. If still under SAMPLE_TARGET, top up with random keeps.
     random.seed(SEED)
 
-    # Start with all curated records
-    sampled_ids = set(r["id"] for r in curated_records)
-    sampled = list(curated_records)
+    drops = [r for r in curated_records if "drop" in (r["curation_status"] or "")]
+    keeps = [r for r in curated_records if "drop" not in (r["curation_status"] or "")]
+
+    # Bucket keeps by family
+    keeps_by_family = defaultdict(list)
+    for r in keeps:
+        keeps_by_family[(r["order"], r["family"])].append(r)
+
+    sampled_keeps = []
+    for fam_key, fam_records in keeps_by_family.items():
+        if len(fam_records) <= KEEPS_PER_FAMILY:
+            sampled_keeps.extend(fam_records)
+        else:
+            sampled_keeps.extend(random.sample(fam_records, KEEPS_PER_FAMILY))
+
+    sampled = list(drops) + sampled_keeps
+    sampled_ids = {r["id"] for r in sampled}
 
     # Ensure minimum representation per order (100 images each)
     MIN_PER_ORDER = 100
@@ -262,7 +284,20 @@ def main():
             for r in extra:
                 sampled_ids.add(r["id"])
 
+    # Cap total to SAMPLE_TARGET — drops always retained, trim from keeps
+    if len(sampled) > SAMPLE_TARGET:
+        # Re-derive after additions
+        kept_drops = [r for r in sampled if "drop" in (r["curation_status"] or "")]
+        kept_other = [r for r in sampled if "drop" not in (r["curation_status"] or "")]
+        budget = max(0, SAMPLE_TARGET - len(kept_drops))
+        if len(kept_other) > budget:
+            kept_other = random.sample(kept_other, budget)
+        sampled = kept_drops + kept_other
+
     random.shuffle(sampled)
+    print(f"\n  Sample composition: {sum(1 for r in sampled if 'drop' in (r['curation_status'] or ''))} drops + "
+          f"{sum(1 for r in sampled if 'keep' in (r['curation_status'] or '') and r['curation_status'] != 'not_curated')} keeps + "
+          f"{sum(1 for r in sampled if r['curation_status'] == 'not_curated')} uncurated")
 
     summary["sampled_images"] = len(sampled)
 
