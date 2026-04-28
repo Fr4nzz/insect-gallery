@@ -193,6 +193,23 @@ def main():
             }
         print(f"    v3 curation lookup: {len(v3_lookup)} entries")
 
+    # Claude Opus 4.7 smoke test: same 45 images run at 3 effort levels
+    # (low / medium / high) via `claude -p` CLI shellout. Lets us spot-check
+    # whether more reasoning produces different verdicts on the same input.
+    claude_lookup = {}
+    for effort in ("low", "medium", "high"):
+        path = BASE / f"curation_claude_smoketest_{effort}.json"
+        if not path.exists():
+            continue
+        raw = load_json(path)
+        for rel_key, entry in raw.items():
+            photo_id = os.path.splitext(os.path.basename(rel_key))[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            claude_lookup.setdefault(photo_id, {})[f"claude_{effort}_label"] = entry.get("label")
+            claude_lookup[photo_id][f"claude_{effort}_confidence"] = entry.get("confidence")
+        print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
+
     sam3_lookup = {}
     yolo_lookup = {}
     for fname, lookup, prefix in (
@@ -294,6 +311,7 @@ def main():
             "yolo_other_dets": yolo.get("yolo_other_dets"),
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
+            **(claude_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)
@@ -339,6 +357,7 @@ def main():
             "yolo_other_dets": yolo.get("yolo_other_dets"),
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
+            **(claude_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)
@@ -420,15 +439,32 @@ def main():
             for r in extra:
                 sampled_ids.add(r["id"])
 
-    # Cap total to SAMPLE_TARGET — drops always retained, trim from keeps
+    # Force-include any record with Claude smoke-test data so all 45 imgs
+    # surface in the gallery for spot-check (otherwise the family/keep cap
+    # above can drop most of them).
+    claude_ids = {r["id"] for r in all_records
+                  if any(r.get(f"claude_{e}_label")
+                         for e in ("low", "medium", "high"))}
+    for r in all_records:
+        if r["id"] in claude_ids and r["id"] not in sampled_ids:
+            sampled.append(r)
+            sampled_ids.add(r["id"])
+
+    # Cap total to SAMPLE_TARGET — drops + Claude smoke-test always retained,
+    # trim from generic keeps.
     if len(sampled) > SAMPLE_TARGET:
-        # Re-derive after additions
-        kept_drops = [r for r in sampled if "drop" in (r["curation_status"] or "")]
-        kept_other = [r for r in sampled if "drop" not in (r["curation_status"] or "")]
-        budget = max(0, SAMPLE_TARGET - len(kept_drops))
+        kept_pinned = [
+            r for r in sampled
+            if "drop" in (r["curation_status"] or "") or r["id"] in claude_ids
+        ]
+        kept_other = [
+            r for r in sampled
+            if "drop" not in (r["curation_status"] or "") and r["id"] not in claude_ids
+        ]
+        budget = max(0, SAMPLE_TARGET - len(kept_pinned))
         if len(kept_other) > budget:
             kept_other = random.sample(kept_other, budget)
-        sampled = kept_drops + kept_other
+        sampled = kept_pinned + kept_other
 
     random.shuffle(sampled)
     print(f"\n  Sample composition: {sum(1 for r in sampled if 'drop' in (r['curation_status'] or ''))} drops + "

@@ -124,6 +124,19 @@
         </div>
 
         <div class="filter-group">
+          <label>Claude smoke-test</label>
+          <select v-model="selectedClaude">
+            <option value="">Any</option>
+            <option value="any">Has Claude smoke-test data (45 imgs)</option>
+            <option value="efforts_differ">Claude efforts disagree</option>
+            <option value="claude_rescue">Claude RESCUE (v1 drop → claude keep)</option>
+            <option value="claude_dropped_v1_keep">Claude dropped a v1 keep</option>
+            <option value="claude_drop_any">Claude any drop (medium effort)</option>
+            <option value="claude_keep_all">Claude keep at all 3 efforts</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Search</label>
           <input type="text" v-model="searchText" placeholder="Species, genus..." />
         </div>
@@ -368,6 +381,34 @@
                 <span v-else-if="modalImage.v3_label && modalImage.v3_label.startsWith('drop') && (modalImage.curation_status || '').endsWith('_keep')" style="color:#d97706; font-weight:600">v3 dropped a v1 keep ({{ modalImage.v3_label }})</span>
               </td>
             </tr>
+            <tr v-if="hasClaudeAny(modalImage)">
+              <td colspan="2" style="background:#fef3c7; padding:0.5rem; font-weight:700; color:#92400e">
+                Claude Opus 4.7 (smoke test, same image at 3 effort levels)
+              </td>
+            </tr>
+            <tr v-for="effort in ['low','medium','high']" :key="effort"
+                v-if="modalImage[`claude_${effort}_label`]">
+              <td>claude {{ effort }}</td>
+              <td>
+                <span v-if="modalImage[`claude_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`claude_${effort}_label`].toUpperCase() }}</span>
+                <span v-if="modalImage[`claude_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
+                  ({{ (modalImage[`claude_${effort}_confidence`] * 100).toFixed(0) }}%)
+                </span>
+              </td>
+            </tr>
+            <tr v-if="hasClaudeAny(modalImage) && claudeEffortsDiffer(modalImage)">
+              <td>claude effort split</td>
+              <td style="color:#d97706; font-weight:600">
+                Claude verdicts differ across effort levels — worth a closer look
+              </td>
+            </tr>
+            <tr v-if="hasClaudeAny(modalImage) && claudeVsV1Disagrees(modalImage)">
+              <td>claude vs v1</td>
+              <td>
+                <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
+              </td>
+            </tr>
             <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
               <td>SAM3 insect conf</td>
               <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
@@ -399,6 +440,7 @@ const selectedYolo = ref('')
 const selectedModel = ref('')
 const selectedProVerdict = ref('')
 const selectedV3 = ref('')
+const selectedClaude = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -421,6 +463,33 @@ function hasYoloBbox(img) {
 
 function hasYoloVerdict(img) {
   return img.yolo_confidence !== null && img.yolo_confidence !== undefined
+}
+
+function hasClaudeAny(img) {
+  return !!(img.claude_low_label || img.claude_medium_label || img.claude_high_label)
+}
+
+function claudeEffortsDiffer(img) {
+  const labels = ['claude_low_label', 'claude_medium_label', 'claude_high_label']
+    .map(k => img[k])
+    .filter(Boolean)
+  if (labels.length < 2) return false
+  const first = labels[0]
+  return labels.some(l => l !== first)
+}
+
+function claudeVsV1Disagrees(img) {
+  // Use medium as the canonical Claude verdict for the v1 comparison.
+  const claudeLbl = img.claude_medium_label || img.claude_high_label || img.claude_low_label
+  if (!claudeLbl) return null
+  const v1 = img.curation_status || ''
+  const v1Keep = v1.endsWith('_keep')
+  const v1Drop = v1.endsWith('_drop')
+  const cKeep = claudeLbl === 'keep'
+  const cDrop = claudeLbl.startsWith('drop')
+  if (v1Drop && cKeep) return `Claude RESCUED a v1 drop`
+  if (v1Keep && cDrop) return `Claude dropped a v1 keep (${claudeLbl})`
+  return null
 }
 
 function v1V3Disagree(img) {
@@ -574,6 +643,40 @@ const filteredImages = computed(() => {
       imgs = imgs.filter(i => i.v3_label === 'keep' && i.v3_use_yolo_crop === true)
     } else if (v === 'v3_use_yolo_false') {
       imgs = imgs.filter(i => i.v3_label === 'keep' && i.v3_use_yolo_crop === false)
+    }
+  }
+  if (selectedClaude.value) {
+    const v = selectedClaude.value
+    const has = (i) => !!(i.claude_low_label || i.claude_medium_label || i.claude_high_label)
+    if (v === 'any') {
+      imgs = imgs.filter(has)
+    } else if (v === 'efforts_differ') {
+      imgs = imgs.filter(i => {
+        const labels = [i.claude_low_label, i.claude_medium_label, i.claude_high_label]
+          .filter(Boolean)
+        return labels.length >= 2 && labels.some(l => l !== labels[0])
+      })
+    } else if (v === 'claude_rescue') {
+      imgs = imgs.filter(i => {
+        const c = i.claude_medium_label || i.claude_high_label || i.claude_low_label
+        return c === 'keep' && (i.curation_status || '').endsWith('_drop')
+      })
+    } else if (v === 'claude_dropped_v1_keep') {
+      imgs = imgs.filter(i => {
+        const c = i.claude_medium_label || i.claude_high_label || i.claude_low_label
+        return c && c.startsWith('drop') && (i.curation_status || '').endsWith('_keep')
+      })
+    } else if (v === 'claude_drop_any') {
+      imgs = imgs.filter(i => {
+        const c = i.claude_medium_label
+        return c && c.startsWith('drop')
+      })
+    } else if (v === 'claude_keep_all') {
+      imgs = imgs.filter(i =>
+        i.claude_low_label === 'keep' &&
+        i.claude_medium_label === 'keep' &&
+        i.claude_high_label === 'keep'
+      )
     }
   }
   if (searchText.value) {
