@@ -174,6 +174,25 @@ def main():
     # Two interchangeable producers — YOLO v12 (fast, insect-specific) preferred,
     # falling back to SAM3 (slow, generic). Whichever ran most recently wins
     # per-image; both are surfaced in the gallery.
+    # v3 curation: Gemini 3 Flash second pass with YOLO context burned in.
+    # Each entry has label / confidence / use_yolo_crop / reasoning.
+    v3_lookup = {}
+    v3_path = BASE / "curation_v3.json"
+    if v3_path.exists():
+        v3_raw = load_json(v3_path)
+        for rel_key, entry in v3_raw.items():
+            base = os.path.basename(rel_key)
+            photo_id = os.path.splitext(base)[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            v3_lookup[photo_id] = {
+                "v3_label": entry.get("label"),
+                "v3_confidence": entry.get("confidence"),
+                "v3_use_yolo_crop": entry.get("use_yolo_crop"),
+                "v3_reasoning": entry.get("reasoning"),
+            }
+        print(f"    v3 curation lookup: {len(v3_lookup)} entries")
+
     sam3_lookup = {}
     yolo_lookup = {}
     for fname, lookup, prefix in (
@@ -274,6 +293,7 @@ def main():
             "yolo_bbox": yolo.get("yolo_bbox"),
             "yolo_other_dets": yolo.get("yolo_other_dets"),
             "yolo_gemini_label": yolo.get("gemini_label"),
+            **(v3_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)
@@ -318,6 +338,7 @@ def main():
             "yolo_bbox": yolo.get("yolo_bbox"),
             "yolo_other_dets": yolo.get("yolo_other_dets"),
             "yolo_gemini_label": yolo.get("gemini_label"),
+            **(v3_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)

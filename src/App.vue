@@ -104,6 +104,26 @@
         </div>
 
         <div class="filter-group">
+          <label>Gemini v3</label>
+          <select v-model="selectedV3">
+            <option value="">Any</option>
+            <option value="keep">v3 keep</option>
+            <option value="any_drop">v3 any drop</option>
+            <option value="drop_quality">v3 drop_quality</option>
+            <option value="drop_larva">v3 drop_larva</option>
+            <option value="drop_multiple">v3 drop_multiple</option>
+            <option value="drop_habitat">v3 drop_habitat</option>
+            <option value="drop_not_insect">v3 drop_not_insect</option>
+            <option value="drop_pupa">v3 drop_pupa</option>
+            <option value="drop_dead">v3 drop_dead</option>
+            <option value="rescue">v3 RESCUE (v1 drop → v3 keep)</option>
+            <option value="v3_dropped_v1_keep">v3 dropped a v1 keep</option>
+            <option value="v3_use_yolo_true">v3 keep + use YOLO crop</option>
+            <option value="v3_use_yolo_false">v3 keep + use FULL image</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Search</label>
           <input type="text" v-model="searchText" placeholder="Species, genus..." />
         </div>
@@ -315,6 +335,39 @@
                 <span v-else>both drop ({{ modalImage.yolo_gemini_label }})</span>
               </td>
             </tr>
+            <tr v-if="modalImage.v3_label">
+              <td colspan="2" style="background:#eef2ff; padding:0.5rem; font-weight:700; color:#3730a3">
+                Gemini v3 (with YOLO context)
+              </td>
+            </tr>
+            <tr v-if="modalImage.v3_label">
+              <td>v3 verdict</td>
+              <td>
+                <span v-if="modalImage.v3_label === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage.v3_label.toUpperCase() }}</span>
+                <span v-if="modalImage.v3_confidence" style="color:#666; margin-left:0.5rem">
+                  ({{ (modalImage.v3_confidence * 100).toFixed(0) }}%)
+                </span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.v3_label === 'keep' && modalImage.v3_use_yolo_crop !== null && modalImage.v3_use_yolo_crop !== undefined">
+              <td>v3 crop choice</td>
+              <td>
+                <span v-if="modalImage.v3_use_yolo_crop" style="color:#22c55e">use YOLO crop ✓</span>
+                <span v-else style="color:#0ea5e9; font-weight:600">use FULL image</span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.v3_reasoning">
+              <td>v3 reasoning</td>
+              <td><em>{{ modalImage.v3_reasoning }}</em></td>
+            </tr>
+            <tr v-if="v1V3Disagree(modalImage)">
+              <td>v1 vs v3</td>
+              <td>
+                <span v-if="modalImage.v3_label === 'keep' && (modalImage.curation_status || '').endsWith('_drop')" style="color:#0ea5e9; font-weight:600">v3 RESCUED a v1 drop</span>
+                <span v-else-if="modalImage.v3_label && modalImage.v3_label.startsWith('drop') && (modalImage.curation_status || '').endsWith('_keep')" style="color:#d97706; font-weight:600">v3 dropped a v1 keep ({{ modalImage.v3_label }})</span>
+              </td>
+            </tr>
             <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
               <td>SAM3 insect conf</td>
               <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
@@ -345,6 +398,7 @@ const selectedSam3 = ref('')
 const selectedYolo = ref('')
 const selectedModel = ref('')
 const selectedProVerdict = ref('')
+const selectedV3 = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -367,6 +421,15 @@ function hasYoloBbox(img) {
 
 function hasYoloVerdict(img) {
   return img.yolo_confidence !== null && img.yolo_confidence !== undefined
+}
+
+function v1V3Disagree(img) {
+  if (!img.v3_label) return false
+  const v1Keep = (img.curation_status || '').endsWith('_keep')
+  const v1Drop = (img.curation_status || '').endsWith('_drop')
+  const v3Keep = img.v3_label === 'keep'
+  const v3Drop = img.v3_label.startsWith('drop')
+  return (v1Keep && v3Drop) || (v1Drop && v3Keep)
 }
 
 function onModalImgLoad(e) {
@@ -489,6 +552,29 @@ const filteredImages = computed(() => {
   }
   if (selectedProVerdict.value) {
     imgs = imgs.filter(i => i.pro_label === selectedProVerdict.value)
+  }
+  if (selectedV3.value) {
+    const v = selectedV3.value
+    if (v === 'keep') {
+      imgs = imgs.filter(i => i.v3_label === 'keep')
+    } else if (v === 'any_drop') {
+      imgs = imgs.filter(i => i.v3_label && i.v3_label.startsWith('drop'))
+    } else if (v.startsWith('drop_')) {
+      imgs = imgs.filter(i => i.v3_label === v)
+    } else if (v === 'rescue') {
+      imgs = imgs.filter(i =>
+        i.v3_label === 'keep' && (i.curation_status || '').endsWith('_drop')
+      )
+    } else if (v === 'v3_dropped_v1_keep') {
+      imgs = imgs.filter(i =>
+        i.v3_label && i.v3_label.startsWith('drop') &&
+        (i.curation_status || '').endsWith('_keep')
+      )
+    } else if (v === 'v3_use_yolo_true') {
+      imgs = imgs.filter(i => i.v3_label === 'keep' && i.v3_use_yolo_crop === true)
+    } else if (v === 'v3_use_yolo_false') {
+      imgs = imgs.filter(i => i.v3_label === 'keep' && i.v3_use_yolo_crop === false)
+    }
   }
   if (searchText.value) {
     const q = searchText.value.toLowerCase()
