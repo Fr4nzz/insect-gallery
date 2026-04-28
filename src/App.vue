@@ -57,6 +57,16 @@
         </div>
 
         <div class="filter-group">
+          <label>YOLO v12 conf</label>
+          <select v-model="selectedYolo">
+            <option value="">All</option>
+            <option value="kept">≥ threshold (kept)</option>
+            <option value="low">below threshold</option>
+            <option value="missing">no YOLO result</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>SAM3 conf</label>
           <select v-model="selectedSam3">
             <option value="">All</option>
@@ -129,8 +139,13 @@
                :title="proBadgeTitle(img)">
             {{ proBadgeLabel(img) }}
           </div>
+          <div v-if="img.yolo_confidence !== null && img.yolo_confidence !== undefined" class="yolo-badge"
+               :class="{ low: img.yolo_kept === false }"
+               :title="`YOLO v12 insect detection confidence: ${(img.yolo_confidence*100).toFixed(0)}%`">
+            Y12 {{ (img.yolo_confidence*100).toFixed(0) }}%
+          </div>
           <div v-if="img.sam3_confidence !== null && img.sam3_confidence !== undefined" class="sam3-badge"
-               :class="{ low: img.sam3_confidence < 0.5 }"
+               :class="{ low: img.sam3_kept === false }"
                :title="`SAM3 insect confidence: ${(img.sam3_confidence*100).toFixed(0)}%`">
             S3 {{ (img.sam3_confidence*100).toFixed(0) }}%
           </div>
@@ -180,10 +195,62 @@
       <button @click="visibleCount += 100">Load More ({{ (filteredImages.length - visibleCount).toLocaleString() }} remaining)</button>
     </div>
 
-    <div v-if="modalImage" class="modal-overlay" @click.self="modalImage = null">
+    <div v-if="modalImage" class="modal-overlay" @click.self="closeModal()">
       <div class="modal-content">
-        <button class="modal-close" @click="modalImage = null">&times;</button>
-        <img :src="modalImage.url" :alt="modalImage.scientific_name" />
+        <button class="modal-close" @click="closeModal()">&times;</button>
+        <div class="modal-image-wrap">
+          <img :src="modalImage.url" :alt="modalImage.scientific_name"
+               @load="onModalImgLoad" />
+          <svg
+            v-if="showBboxOverlay && modalImgNatural && hasYoloBbox(modalImage)"
+            class="bbox-overlay"
+            :viewBox="`0 0 ${modalImgNatural.w} ${modalImgNatural.h}`"
+            preserveAspectRatio="xMidYMid meet"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              v-for="(d, i) in (modalImage.yolo_other_dets || [])"
+              :key="'o' + i"
+              :x="d.xyxy[0]"
+              :y="d.xyxy[1]"
+              :width="d.xyxy[2] - d.xyxy[0]"
+              :height="d.xyxy[3] - d.xyxy[1]"
+              class="bbox-other"
+            />
+            <rect
+              v-if="modalImage.yolo_bbox"
+              :x="modalImage.yolo_bbox[0]"
+              :y="modalImage.yolo_bbox[1]"
+              :width="modalImage.yolo_bbox[2] - modalImage.yolo_bbox[0]"
+              :height="modalImage.yolo_bbox[3] - modalImage.yolo_bbox[1]"
+              :class="['bbox-best', modalImage.yolo_kept ? 'bbox-kept' : 'bbox-dropped']"
+            />
+            <text
+              v-if="modalImage.yolo_bbox && modalImage.yolo_confidence !== null && modalImage.yolo_confidence !== undefined"
+              :x="modalImage.yolo_bbox[0]"
+              :y="Math.max(modalImage.yolo_bbox[1] - bboxFontSize * 0.4, bboxFontSize)"
+              :font-size="bboxFontSize"
+              :class="['bbox-label', modalImage.yolo_kept ? 'bbox-kept' : 'bbox-dropped']"
+            >
+              YOLO {{ (modalImage.yolo_confidence * 100).toFixed(0) }}%
+            </text>
+          </svg>
+          <div v-if="hasYoloVerdict(modalImage)" class="bbox-toggle">
+            <label>
+              <input type="checkbox" v-model="showBboxOverlay" />
+              Show YOLO bboxes
+            </label>
+            <span v-if="modalImage.yolo_reason === 'no_detection'" class="bbox-flag bbox-flag-none">
+              YOLO saw no insect
+            </span>
+            <span v-else-if="modalImage.yolo_reason === 'below_threshold'" class="bbox-flag bbox-flag-low">
+              YOLO low-confidence ({{ (modalImage.yolo_confidence * 100).toFixed(0) }}%)
+            </span>
+            <span v-else-if="modalImage.yolo_kept" class="bbox-flag bbox-flag-kept">
+              YOLO kept ({{ (modalImage.yolo_confidence * 100).toFixed(0) }}%)
+            </span>
+          </div>
+        </div>
         <div class="modal-info">
           <h3>{{ modalImage.scientific_name || `${modalImage.order}: ${modalImage.family}` }}</h3>
           <p v-if="modalImage.common_name">{{ modalImage.common_name }}</p>
@@ -224,6 +291,30 @@
               <td>Pro reason</td>
               <td><em>{{ modalImage.pro_reason }}</em></td>
             </tr>
+            <tr v-if="modalImage.yolo_confidence !== null && modalImage.yolo_confidence !== undefined">
+              <td>YOLO v12 conf</td>
+              <td>{{ (modalImage.yolo_confidence * 100).toFixed(1) }}%
+                  <span v-if="modalImage.yolo_kept">— kept for training</span>
+                  <span v-else>— sent to OOD pool</span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.yolo_reason">
+              <td>YOLO verdict</td>
+              <td>
+                <span v-if="modalImage.yolo_reason === 'no_detection'">No detection</span>
+                <span v-else-if="modalImage.yolo_reason === 'below_threshold'">Below threshold</span>
+                <span v-else>{{ modalImage.yolo_reason }}</span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.yolo_gemini_label && modalImage.yolo_gemini_label !== modalImage.curation_status">
+              <td>Gemini × YOLO</td>
+              <td>
+                <span v-if="modalImage.yolo_gemini_label === 'keep' && modalImage.yolo_kept" style="color:#28a745">both keep</span>
+                <span v-else-if="modalImage.yolo_gemini_label === 'keep' && !modalImage.yolo_kept" style="color:#d97706">Gemini keep / YOLO drop</span>
+                <span v-else-if="modalImage.yolo_gemini_label && modalImage.yolo_gemini_label.startsWith('drop') && modalImage.yolo_kept" style="color:#0ea5e9; font-weight:600">YOLO RESCUE — Gemini said {{ modalImage.yolo_gemini_label }}</span>
+                <span v-else>both drop ({{ modalImage.yolo_gemini_label }})</span>
+              </td>
+            </tr>
             <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
               <td>SAM3 insect conf</td>
               <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
@@ -251,14 +342,44 @@ const selectedFamily = ref('')
 const selectedSource = ref('')
 const selectedCuration = ref('')
 const selectedSam3 = ref('')
+const selectedYolo = ref('')
 const selectedModel = ref('')
 const selectedProVerdict = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
 const modalImage = ref(null)
+const modalImgNatural = ref(null)
+const showBboxOverlay = ref(true)
 const sortField = ref('')
 const sortAsc = ref(true)
+
+// SVG text size scales with image dimensions so labels stay readable on
+// small thumbnails AND on full-res photos.
+const bboxFontSize = computed(() => {
+  if (!modalImgNatural.value) return 16
+  return Math.max(modalImgNatural.value.w, modalImgNatural.value.h) * 0.025
+})
+
+function hasYoloBbox(img) {
+  return Array.isArray(img.yolo_bbox) && img.yolo_bbox.length === 4
+}
+
+function hasYoloVerdict(img) {
+  return img.yolo_confidence !== null && img.yolo_confidence !== undefined
+}
+
+function onModalImgLoad(e) {
+  modalImgNatural.value = {
+    w: e.target.naturalWidth,
+    h: e.target.naturalHeight,
+  }
+}
+
+function closeModal() {
+  modalImage.value = null
+  modalImgNatural.value = null
+}
 
 onMounted(async () => {
   try {
@@ -347,6 +468,13 @@ const filteredImages = computed(() => {
     imgs = imgs.filter(i => i.sam3_kept === false)
   } else if (selectedSam3.value === 'missing') {
     imgs = imgs.filter(i => i.sam3_confidence === null || i.sam3_confidence === undefined)
+  }
+  if (selectedYolo.value === 'kept') {
+    imgs = imgs.filter(i => i.yolo_kept === true)
+  } else if (selectedYolo.value === 'low') {
+    imgs = imgs.filter(i => i.yolo_kept === false)
+  } else if (selectedYolo.value === 'missing') {
+    imgs = imgs.filter(i => i.yolo_confidence === null || i.yolo_confidence === undefined)
   }
   if (selectedModel.value === 'flash') {
     imgs = imgs.filter(i => i.pro_reviewed !== true && i.curation_status !== 'not_curated')
@@ -483,6 +611,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   background: #888;
   opacity: 0.85;
 }
+.yolo-badge {
+  position: absolute; bottom: 0.4rem; left: 0.4rem;
+  padding: 0.15rem 0.45rem; border-radius: 3px;
+  font-size: 0.65rem; font-weight: 700;
+  background: #16a34a; color: white;
+}
+.yolo-badge.low {
+  background: #999;
+  opacity: 0.85;
+}
 
 .card-info { padding: 0.5rem 0.6rem; }
 .taxon-line { display: flex; gap: 0.4rem; align-items: center; }
@@ -513,7 +651,23 @@ td { padding: 0.4rem 0.5rem; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 2rem; }
 .modal-content { background: white; border-radius: 12px; max-width: 900px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; position: relative; }
 .modal-close { position: absolute; top: 1rem; right: 1rem; background: rgba(0,0,0,0.5); color: white; border: none; font-size: 1.5rem; width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer; z-index: 10; }
-.modal-content > img { width: 100%; max-height: 60vh; object-fit: contain; background: #f5f5f5; }
+.modal-image-wrap { position: relative; background: #f5f5f5; line-height: 0; }
+.modal-image-wrap > img { width: 100%; max-height: 60vh; object-fit: contain; display: block; }
+.bbox-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+.bbox-best { fill: none; stroke-width: 4; }
+.bbox-best.bbox-kept { stroke: #22c55e; }
+.bbox-best.bbox-dropped { stroke: #f59e0b; stroke-dasharray: 8 4; }
+.bbox-other { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 2; stroke-dasharray: 4 3; }
+.bbox-label { font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,0.6); stroke-width: 3; stroke-linejoin: round; }
+.bbox-label.bbox-kept { fill: #22c55e; }
+.bbox-label.bbox-dropped { fill: #f59e0b; }
+.bbox-toggle { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; line-height: 1.2; font-size: 0.8rem; }
+.bbox-toggle label { background: rgba(0,0,0,0.6); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; user-select: none; }
+.bbox-toggle input { margin-right: 0.3rem; }
+.bbox-flag { padding: 0.2rem 0.5rem; border-radius: 4px; color: white; font-weight: 600; font-size: 0.7rem; }
+.bbox-flag-kept { background: #22c55e; }
+.bbox-flag-low { background: #f59e0b; }
+.bbox-flag-none { background: #ef4444; }
 .modal-info { padding: 1.5rem; }
 .modal-info h3 { font-size: 1.2rem; margin-bottom: 0.3rem; }
 .modal-meta { margin-top: 0.75rem; font-size: 0.9rem; }

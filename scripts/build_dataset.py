@@ -170,22 +170,64 @@ def main():
     if biotrove_curation_lookup:
         print(f"    BioTrove full curation lookup: {len(biotrove_curation_lookup)} entries")
 
-    # Load SAM3 confidence per image (if Phase B has been run)
-    sam3_path = BASE / "sam3_crops_summary.json"
+    # Load segmentation/detection filter confidence per image.
+    # Two interchangeable producers — YOLO v12 (fast, insect-specific) preferred,
+    # falling back to SAM3 (slow, generic). Whichever ran most recently wins
+    # per-image; both are surfaced in the gallery.
     sam3_lookup = {}
-    if sam3_path.exists():
-        sam3_data = load_json(sam3_path)
-        for rel_key, entry in sam3_data.items():
-            filename = os.path.basename(rel_key)
-            photo_id = os.path.splitext(filename)[0]
+    yolo_lookup = {}
+    for fname, lookup, prefix in (
+        (BASE / "yolo_v12_crops_summary.json", "yolo", "yolo"),
+        (BASE / "sam3_crops_summary.json", "sam3", "sam3"),
+    ):
+        if not fname.exists():
+            continue
+        data = load_json(fname)
+        target = yolo_lookup if prefix == "yolo" else sam3_lookup
+        for rel_key, entry in data.items():
+            base = os.path.basename(rel_key)
+            photo_id = os.path.splitext(base)[0]
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
-            sam3_lookup[photo_id] = {
-                "sam3_confidence": entry.get("best_conf", 0.0),
-                "sam3_kept": entry.get("kept", False),
-                "sam3_reason": entry.get("reason"),
+            row = {
+                f"{prefix}_confidence": entry.get("best_conf", 0.0),
+                f"{prefix}_kept": entry.get("kept", False),
+                f"{prefix}_reason": entry.get("reason"),
             }
-        print(f"    SAM3 confidence lookup: {len(sam3_lookup)} entries")
+            # Bboxes in original pixel coords. The gallery normalizes against
+            # naturalWidth/Height at render time, so we don't need image_size
+            # here. We keep the BEST det for the primary overlay, plus up to
+            # 4 others to visualize NMS / multi-insect frames.
+            #
+            # bbox_orig_xyxy is only populated for kept entries by the python
+            # filter script. For below_threshold and no_detection cases we
+            # fall back to the highest-score box in all_dets, so the user can
+            # still see what YOLO was looking at — this is the whole point of
+            # the gallery: spot-check whether YOLO generalizes to nature shots
+            # vs the white-background light-trap photos it was trained on.
+            all_dets = sorted(
+                entry.get("all_dets") or [],
+                key=lambda d: -d.get("score", 0),
+            )
+            best_xyxy = entry.get("bbox_orig_xyxy")
+            if not best_xyxy and all_dets:
+                best_xyxy = all_dets[0]["xyxy"]
+            if best_xyxy:
+                row[f"{prefix}_bbox"] = [round(float(v), 1) for v in best_xyxy]
+            if len(all_dets) > 1:
+                rest = all_dets[1:5]
+                row[f"{prefix}_other_dets"] = [
+                    {
+                        "xyxy": [round(float(v), 1) for v in d["xyxy"]],
+                        "score": round(float(d.get("score", 0)), 3),
+                    }
+                    for d in rest
+                ]
+            # Surface gemini_label so we can compare gemini vs yolo in the UI.
+            if "gemini_label" in entry:
+                row["gemini_label"] = entry["gemini_label"]
+            target[photo_id] = row
+        print(f"    {prefix.upper()} confidence lookup: {len(target)} entries")
 
     # Process BioTrove manifest
     print(f"\n  Processing {len(biotrove)} BioTrove entries...")
@@ -200,6 +242,7 @@ def main():
         curation = biotrove_curation_lookup.get(photo_id) or audit_lookup.get(photo_id)
 
         sam3 = sam3_lookup.get(photo_id, {})
+        yolo = yolo_lookup.get(photo_id, {})
         record = {
             "id": photo_id,
             "url": url,
@@ -224,6 +267,13 @@ def main():
             "flash_label_was": curation.get("flash_label_was") if curation else None,
             "sam3_confidence": sam3.get("sam3_confidence"),
             "sam3_kept": sam3.get("sam3_kept"),
+            "sam3_bbox": sam3.get("sam3_bbox"),
+            "yolo_confidence": yolo.get("yolo_confidence"),
+            "yolo_kept": yolo.get("yolo_kept"),
+            "yolo_reason": yolo.get("yolo_reason"),
+            "yolo_bbox": yolo.get("yolo_bbox"),
+            "yolo_other_dets": yolo.get("yolo_other_dets"),
+            "yolo_gemini_label": yolo.get("gemini_label"),
         }
 
         all_records.append(record)
@@ -238,6 +288,7 @@ def main():
 
         curation = gbif_curation_lookup.get(gbif_id, None)
         sam3 = sam3_lookup.get(gbif_id, {})
+        yolo = yolo_lookup.get(gbif_id, {})
 
         # GBIF entries don't have scientific_name/common_name fields
         species = entry.get("species", "")
@@ -260,6 +311,13 @@ def main():
             "life_stage": curation["life_stage"] if curation else "",
             "sam3_confidence": sam3.get("sam3_confidence"),
             "sam3_kept": sam3.get("sam3_kept"),
+            "sam3_bbox": sam3.get("sam3_bbox"),
+            "yolo_confidence": yolo.get("yolo_confidence"),
+            "yolo_kept": yolo.get("yolo_kept"),
+            "yolo_reason": yolo.get("yolo_reason"),
+            "yolo_bbox": yolo.get("yolo_bbox"),
+            "yolo_other_dets": yolo.get("yolo_other_dets"),
+            "yolo_gemini_label": yolo.get("gemini_label"),
         }
 
         all_records.append(record)
