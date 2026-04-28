@@ -386,17 +386,18 @@
                 Claude Opus 4.7 (smoke test, same image at 3 effort levels)
               </td>
             </tr>
-            <tr v-for="effort in ['low','medium','high']" :key="effort"
-                v-if="modalImage[`claude_${effort}_label`]">
-              <td>claude {{ effort }}</td>
-              <td>
-                <span v-if="modalImage[`claude_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
-                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`claude_${effort}_label`].toUpperCase() }}</span>
-                <span v-if="modalImage[`claude_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
-                  ({{ (modalImage[`claude_${effort}_confidence`] * 100).toFixed(0) }}%)
-                </span>
-              </td>
-            </tr>
+            <template v-for="effort in ['low','medium','high']" :key="effort">
+              <tr v-if="modalImage[`claude_${effort}_label`]">
+                <td>claude {{ effort }}</td>
+                <td>
+                  <span v-if="modalImage[`claude_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`claude_${effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`claude_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
+                    ({{ (modalImage[`claude_${effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                </td>
+              </tr>
+            </template>
             <tr v-if="hasClaudeAny(modalImage) && claudeEffortsDiffer(modalImage)">
               <td>claude effort split</td>
               <td style="color:#d97706; font-weight:600">
@@ -516,11 +517,14 @@ function closeModal() {
 onMounted(async () => {
   try {
     // Load summary first (tiny, instant)
-    const summaryRes = await fetch(import.meta.env.BASE_URL + 'data/dataset_summary.json')
+    // Cache-bust both data files. Vite hashes JS/CSS but not /data/ assets,
+    // so dataset additions otherwise serve stale from disk cache.
+    const cacheBust = '?v=' + (window.__BUILD_TS__ || Date.now())
+    const summaryRes = await fetch(import.meta.env.BASE_URL + 'data/dataset_summary.json' + cacheBust)
     summary.value = await summaryRes.json()
 
     // Stream dataset in chunks so UI renders progressively
-    const dataRes = await fetch(import.meta.env.BASE_URL + 'data/dataset.json')
+    const dataRes = await fetch(import.meta.env.BASE_URL + 'data/dataset.json' + cacheBust)
     const text = await dataRes.text()
     const allData = JSON.parse(text)
 
