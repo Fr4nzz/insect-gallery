@@ -272,21 +272,21 @@
     "curated_review": 1
   },
   "sample_orders": {
-    "Hemiptera": 10221,
-    "Lepidoptera": 9287,
-    "Coleoptera": 8411,
-    "Diptera": 5043,
-    "Hymenoptera": 1906,
-    "Orthoptera": 1126,
-    "Blattodea": 965,
-    "Mantodea": 861,
+    "Hemiptera": 10193,
+    "Lepidoptera": 9255,
+    "Coleoptera": 8362,
+    "Diptera": 5018,
+    "Hymenoptera": 1908,
+    "Orthoptera": 1136,
+    "Blattodea": 977,
+    "Mantodea": 877,
     "Plecoptera": 460,
-    "Dermaptera": 367,
-    "Odonata": 341,
-    "Neuroptera": 300,
-    "Ephemeroptera": 277,
-    "Phasmida": 240,
-    "Trichoptera": 195
+    "Dermaptera": 383,
+    "Odonata": 356,
+    "Neuroptera": 316,
+    "Ephemeroptera": 292,
+    "Phasmida": 257,
+    "Trichoptera": 210
   },
   "sample_sources": {
     "biotrove": 39944,
@@ -294,6 +294,7 @@
   },
   "sample_curation_status": {
     "curated_drop": 36022,
-    "curated_keep": 3978
+    "curated_keep": 3977,
+    "not_curated": 1
   }
 }
