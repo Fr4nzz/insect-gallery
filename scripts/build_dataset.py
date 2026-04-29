@@ -471,6 +471,18 @@ def main():
                     continue
                 deduped.append(d)
 
+            # Drop tiny noise bboxes — same rule the curator script uses
+            # so the gallery's numbered overlay matches what Gemini saw.
+            # Drop any bbox whose area is < 50% of the best (#1)'s area.
+            if deduped:
+                def _area(d):
+                    x0, y0, x1, y1 = d["xyxy"]
+                    return max(0, x1 - x0) * max(0, y1 - y0)
+                anchor = _area(deduped[0])
+                if anchor > 0:
+                    threshold = anchor * 0.5
+                    deduped = [d for d in deduped if _area(d) >= threshold]
+
             best_xyxy = entry.get("bbox_orig_xyxy")
             if not best_xyxy and deduped:
                 best_xyxy = deduped[0]["xyxy"]
