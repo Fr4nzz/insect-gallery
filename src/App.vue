@@ -140,6 +140,22 @@
         </div>
 
         <div class="filter-group">
+          <label>Gemini 3.1 Pro</label>
+          <select v-model="selectedGeminiPro">
+            <option value="">Any</option>
+            <option value="any">Has Gemini Pro data (300 imgs)</option>
+            <option value="claude_vs_gp_disagree">Claude vs Gemini Pro disagree</option>
+            <option value="gp_keep_claude_drop">Gemini Pro keep, Claude dropped</option>
+            <option value="gp_drop_claude_keep">Gemini Pro dropped, Claude kept</option>
+            <option value="gp_dead">Gemini Pro = dead</option>
+            <option value="gp_multiple">Gemini Pro = multiple</option>
+            <option value="gp_quality">Gemini Pro = quality</option>
+            <option value="gp_larva">Gemini Pro = larva</option>
+            <option value="gp_other">Gemini Pro = other</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Codex</label>
           <select v-model="selectedCodex">
             <option value="">Any</option>
@@ -529,6 +545,7 @@ const selectedProVerdict = ref('')
 const selectedV3 = ref('')
 const selectedClaude = ref('')
 const selectedCodex = ref('')
+const selectedGeminiPro = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -858,6 +875,29 @@ const filteredImages = computed(() => {
         const labels = codexCombos.map(c => i[`codex_${c.short}_${c.effort}_label`])
         return labels.every(l => l === 'keep')
       })
+    }
+  }
+  if (selectedGeminiPro.value) {
+    const v = selectedGeminiPro.value
+    const cl = (i) => i.claude_medium_label || i.claude_low_label || i.claude_high_label
+    if (v === 'any') {
+      imgs = imgs.filter(i => i.gemini_pro_label)
+    } else if (v === 'claude_vs_gp_disagree') {
+      imgs = imgs.filter(i => i.gemini_pro_label && cl(i) && i.gemini_pro_label !== cl(i))
+    } else if (v === 'gp_keep_claude_drop') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'keep' && cl(i) && cl(i) !== 'keep')
+    } else if (v === 'gp_drop_claude_keep') {
+      imgs = imgs.filter(i => i.gemini_pro_label && i.gemini_pro_label !== 'keep' && cl(i) === 'keep')
+    } else if (v === 'gp_dead') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_dead' || i.gemini_pro_label === 'dead')
+    } else if (v === 'gp_multiple') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_multiple' || i.gemini_pro_label === 'multiple')
+    } else if (v === 'gp_quality') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_quality' || i.gemini_pro_label === 'quality')
+    } else if (v === 'gp_larva') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_larva' || i.gemini_pro_label === 'larva')
+    } else if (v === 'gp_other') {
+      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_other' || i.gemini_pro_label === 'other')
     }
   }
   if (searchText.value) {
