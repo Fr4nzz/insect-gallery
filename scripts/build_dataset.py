@@ -269,7 +269,16 @@ def main():
     # (e.g. _1k_test_shard0of5.json ... _shard4of5.json) get picked up
     # without editing this list. Each shard infers effort from "low"|"medium"|
     # "high" in its filename; defaults to "low".
-    for shard_path in sorted(BASE.glob("curation_claude_*_shard*.json")):
+    #
+    # Sort by mtime DESCENDING — newest first — so when two runs cover the
+    # same images (e.g. _tsv_450 reprocesses ids that appear in _1k_test),
+    # the newer / better-method run wins via the "first slot wins" dedup
+    # logic below. The hardcoded smoketest list above still loads first.
+    for shard_path in sorted(
+        BASE.glob("curation_claude_*_shard*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ):
         if any(shard_path.name == fname for _, fname in claude_sources):
             continue
         name = shard_path.name
