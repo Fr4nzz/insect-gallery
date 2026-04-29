@@ -434,6 +434,38 @@
                 <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
               </td>
             </tr>
+            <tr v-if="modalImage.gemini_pro_label">
+              <td colspan="2" style="background:#ede9fe; padding:0.5rem; font-weight:700; color:#5b21b6">
+                Gemini 3.1 Pro (Vertex Batch, 300-image diverse set)
+              </td>
+            </tr>
+            <tr v-if="modalImage.gemini_pro_label">
+              <td>gemini 3.1 pro</td>
+              <td>
+                <span v-if="modalImage.gemini_pro_label === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage.gemini_pro_label.toUpperCase() }}</span>
+                <span v-if="modalImage.gemini_pro_confidence" style="color:#666; margin-left:0.5rem">
+                  ({{ (modalImage.gemini_pro_confidence * 100).toFixed(0) }}%)
+                </span>
+                <span v-if="modalImage.gemini_pro_label === 'keep' && modalImage.gemini_pro_use_yolo_crop !== undefined && modalImage.gemini_pro_use_yolo_crop !== null"
+                      style="margin-left:0.5rem; font-size:0.85em">
+                  <span v-if="modalImage.gemini_pro_use_yolo_crop" style="color:#22c55e">use YOLO crop</span>
+                  <span v-else style="color:#0ea5e9">use FULL image</span>
+                </span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.gemini_pro_reason">
+              <td>gemini 3.1 pro reason</td>
+              <td><em>{{ modalImage.gemini_pro_reason }}</em></td>
+            </tr>
+            <tr v-if="modalImage.gemini_pro_label && hasClaudeAny(modalImage) && (modalImage.gemini_pro_label !== (modalImage.claude_low_label || modalImage.claude_medium_label || modalImage.claude_high_label))">
+              <td>claude vs gemini pro</td>
+              <td style="color:#7c3aed; font-weight:600">
+                disagree:
+                Claude={{ (modalImage.claude_low_label || modalImage.claude_medium_label || modalImage.claude_high_label || '?').toUpperCase() }},
+                Gemini Pro={{ modalImage.gemini_pro_label.toUpperCase() }}
+              </td>
+            </tr>
             <tr v-if="hasCodexAny(modalImage)">
               <td colspan="2" style="background:#dcfce7; padding:0.5rem; font-weight:700; color:#166534">
                 OpenAI Codex (3 models × 2 efforts, same 45 images as Claude)

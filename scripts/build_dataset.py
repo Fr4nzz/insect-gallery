@@ -314,6 +314,33 @@ def main():
                 claude_lookup[photo_id][f"claude_{effort}_reason"] = entry.get("reason")
         print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
 
+    # Gemini 3.1 Pro batch curation. Same image manifest as Claude (the
+    # diverse-300 stratified sample) — so the gallery can render side-by-side
+    # comparisons of what each VLM said about the same cell.
+    gemini_pro_lookup = {}
+    for path in sorted(BASE.glob("curation_gemini_pro_*.json"),
+                       key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            raw = load_json(path)
+        except Exception:
+            continue
+        for rel_key, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            photo_id = os.path.splitext(os.path.basename(rel_key))[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            slot = gemini_pro_lookup.setdefault(photo_id, {})
+            if slot.get("gemini_pro_label"):  # newest-first wins
+                continue
+            slot["gemini_pro_label"] = normalize_curation_label(entry.get("label"))
+            slot["gemini_pro_confidence"] = entry.get("confidence")
+            if "use_yolo_crop" in entry:
+                slot["gemini_pro_use_yolo_crop"] = entry.get("use_yolo_crop")
+            if entry.get("reason"):
+                slot["gemini_pro_reason"] = entry.get("reason")
+        print(f"    Gemini Pro lookup: {len(raw)} entries from {path.name}")
+
     sam3_lookup = {}
     yolo_lookup = {}
     for fname, lookup, prefix in (
@@ -416,6 +443,7 @@ def main():
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
+            **(gemini_pro_lookup.get(photo_id, {})),
             **(codex_lookup.get(photo_id, {})),
         }
 
@@ -463,6 +491,7 @@ def main():
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
+            **(gemini_pro_lookup.get(photo_id, {})),
             **(codex_lookup.get(photo_id, {})),
         }
 
@@ -557,7 +586,11 @@ def main():
                     return True
         return False
 
-    pinned_ids = {r["id"] for r in all_records if _has_claude(r) or _has_codex(r)}
+    def _has_gemini_pro(r):
+        return bool(r.get("gemini_pro_label"))
+
+    pinned_ids = {r["id"] for r in all_records
+                  if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)}
     for r in all_records:
         if r["id"] in pinned_ids and r["id"] not in sampled_ids:
             sampled.append(r)
