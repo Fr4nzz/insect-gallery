@@ -328,14 +328,28 @@ def main():
     import re as _re
     for path in sorted(BASE.glob("curation_flash_lite_*.json"),
                        key=lambda p: p.stat().st_mtime, reverse=True):
-        m = _re.match(r"curation_flash_lite_singleimg_(?P<eff>off|low|medium|high)_[\d_]+\.json$",
-                      path.name)
-        if m:
-            effort = m.group("eff")
-        elif _re.match(r"curation_flash_lite_singleimg_[\d_]+\.json$", path.name):
-            effort = "off"
+        # Three filename patterns:
+        #   curation_flash_lite_singleimg_<effort>_<ts>.json          (effort-tagged)
+        #   curation_flash_lite_singleimg_<ts>.json                   (legacy = "off")
+        #   curation_flash_lite_seg_<mode>_<effort>_<ts>.json         (segments experiment)
+        m_seg = _re.match(
+            r"curation_flash_lite_seg_(?P<mode>single|multi)_"
+            r"(?P<eff>minimal|low|medium|high)_[\d_]+\.json$",
+            path.name,
+        )
+        if m_seg:
+            field_prefix = f"flash_lite_seg_{m_seg.group('mode')}_{m_seg.group('eff')}"
         else:
-            effort = "off"
+            m = _re.match(
+                r"curation_flash_lite_singleimg_(?P<eff>off|low|medium|high)_[\d_]+\.json$",
+                path.name,
+            )
+            if m:
+                field_prefix = f"flash_lite_{m.group('eff')}"
+            elif _re.match(r"curation_flash_lite_singleimg_[\d_]+\.json$", path.name):
+                field_prefix = "flash_lite_off"
+            else:
+                continue
         try:
             raw = load_json(path)
         except Exception:
@@ -347,16 +361,20 @@ def main():
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
             slot = flash_lite_lookup.setdefault(photo_id, {})
-            key_label = f"flash_lite_{effort}_label"
-            if slot.get(key_label):  # newest-first wins per effort bucket
+            key_label = f"{field_prefix}_label"
+            if slot.get(key_label):  # newest-first wins per bucket
                 continue
             slot[key_label] = normalize_curation_label(entry.get("label"))
-            slot[f"flash_lite_{effort}_confidence"] = entry.get("confidence")
+            slot[f"{field_prefix}_confidence"] = entry.get("confidence")
             if "use_yolo_crop" in entry:
-                slot[f"flash_lite_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
+                slot[f"{field_prefix}_use_yolo_crop"] = entry.get("use_yolo_crop")
+            if "keep_segments" in entry:
+                slot[f"{field_prefix}_keep_segments"] = entry.get("keep_segments")
+            if "use_full_image" in entry:
+                slot[f"{field_prefix}_use_full_image"] = entry.get("use_full_image")
             if entry.get("reason"):
-                slot[f"flash_lite_{effort}_reason"] = entry.get("reason")
-        print(f"    Flash Lite [{effort}] lookup: {len(raw)} entries from {path.name}")
+                slot[f"{field_prefix}_reason"] = entry.get("reason")
+        print(f"    Flash Lite [{field_prefix}] lookup: {len(raw)} entries from {path.name}")
 
     # Gemini 3.1 Pro batch curation. Same image manifest as Claude (the
     # diverse-300 stratified sample). Each entry records its `effort`
@@ -640,7 +658,13 @@ def main():
         return any(r.get(f"gemini_pro_{e}_label") for e in ("low", "medium", "high"))
 
     def _has_flash_lite(r):
-        return any(r.get(f"flash_lite_{e}_label") for e in ("off", "low", "medium", "high"))
+        if any(r.get(f"flash_lite_{e}_label") for e in ("off", "low", "medium", "high")):
+            return True
+        for mode in ("single", "multi"):
+            for e in ("minimal", "low", "medium", "high"):
+                if r.get(f"flash_lite_seg_{mode}_{e}_label"):
+                    return True
+        return False
 
     pinned_ids = {r["id"] for r in all_records
                   if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)

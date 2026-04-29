@@ -140,6 +140,19 @@
         </div>
 
         <div class="filter-group">
+          <label>Flash Lite seg-experiment</label>
+          <select v-model="selectedFlashLiteSeg">
+            <option value="">Any</option>
+            <option value="any">Has segment-experiment data (150 imgs)</option>
+            <option value="single_vs_multi_disagree">Single vs Multi disagree (any effort)</option>
+            <option value="multi_rescue_multiple">Multi-mode rescued a 'multiple' drop</option>
+            <option value="multi_full_img">Multi picked use_full_image</option>
+            <option value="multi_multi_segments">Multi picked ≥2 segments</option>
+            <option value="multi_no_segments">Multi keep but 0 segments + no full_img</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Flash Lite (single img)</label>
           <select v-model="selectedFlashLite">
             <option value="">Any</option>
@@ -505,6 +518,41 @@
               <td>claude vs flash lite</td>
               <td style="color:#9d174d; font-weight:600">{{ claudeVsFlashLiteDisagree(modalImage) }}</td>
             </tr>
+            <tr v-if="hasFlashLiteSegAny(modalImage)">
+              <td colspan="2" style="background:#fdf2f8; padding:0.5rem; font-weight:700; color:#831843">
+                Flash Lite — segment experiment (150 imgs, single vs multi × min vs med)
+              </td>
+            </tr>
+            <template v-for="combo in flashLiteSegCombos" :key="`seg-${combo.mode}-${combo.effort}`">
+              <tr v-if="modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_label`]">
+                <td>{{ combo.mode }} {{ combo.effort }}</td>
+                <td>
+                  <span v-if="modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_confidence`]" style="color:#666; margin-left:0.4rem">
+                    ({{ (modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                  <!-- single mode: yolo flag -->
+                  <span v-if="combo.mode === 'single' && modalImage[`flash_lite_seg_single_${combo.effort}_label`] === 'keep' && modalImage[`flash_lite_seg_single_${combo.effort}_use_yolo_crop`] !== undefined && modalImage[`flash_lite_seg_single_${combo.effort}_use_yolo_crop`] !== null"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`flash_lite_seg_single_${combo.effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
+                    <span v-else style="color:#0ea5e9">use FULL image</span>
+                  </span>
+                  <!-- multi mode: full_image flag + segment list -->
+                  <span v-if="combo.mode === 'multi' && modalImage[`flash_lite_seg_multi_${combo.effort}_label`] === 'keep'"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`flash_lite_seg_multi_${combo.effort}_use_full_image`]" style="color:#0ea5e9">use FULL image</span>
+                    <span v-else-if="(modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).length > 0" style="color:#22c55e">
+                      keep segs [{{ (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).join(', ') }}]
+                    </span>
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_reason`]">
+                <td>{{ combo.mode }} {{ combo.effort }} reason</td>
+                <td><em>{{ modalImage[`flash_lite_seg_${combo.mode}_${combo.effort}_reason`] }}</em></td>
+              </tr>
+            </template>
             <tr v-if="hasGeminiProAny(modalImage)">
               <td colspan="2" style="background:#ede9fe; padding:0.5rem; font-weight:700; color:#5b21b6">
                 Gemini 3.1 Pro (Vertex Batch, same 300-image diverse set as Claude)
@@ -606,6 +654,7 @@ const selectedClaude = ref('')
 const selectedCodex = ref('')
 const selectedGeminiPro = ref('')
 const selectedFlashLite = ref('')
+const selectedFlashLiteSeg = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -695,6 +744,17 @@ function geminiProEffortsDiffer(img) {
     .filter(Boolean)
   if (labels.length < 2) return false
   return labels.some(l => l !== labels[0])
+}
+
+const flashLiteSegCombos = [
+  { mode: 'single', effort: 'minimal' },
+  { mode: 'single', effort: 'medium'  },
+  { mode: 'multi',  effort: 'minimal' },
+  { mode: 'multi',  effort: 'medium'  },
+]
+
+function hasFlashLiteSegAny(img) {
+  return flashLiteSegCombos.some(c => img[`flash_lite_seg_${c.mode}_${c.effort}_label`])
 }
 
 function flashLiteCanonical(img) {
@@ -990,6 +1050,49 @@ const filteredImages = computed(() => {
       imgs = imgs.filter(i => {
         const labels = codexCombos.map(c => i[`codex_${c.short}_${c.effort}_label`])
         return labels.every(l => l === 'keep')
+      })
+    }
+  }
+  if (selectedFlashLiteSeg.value) {
+    const v = selectedFlashLiteSeg.value
+    const combos = [['single','minimal'],['single','medium'],['multi','minimal'],['multi','medium']]
+    const anySeg = (i) => combos.some(([m,e]) => i[`flash_lite_seg_${m}_${e}_label`])
+    const cl = (i) => i.claude_medium_label || i.claude_low_label || i.claude_high_label
+    if (v === 'any') {
+      imgs = imgs.filter(anySeg)
+    } else if (v === 'single_vs_multi_disagree') {
+      imgs = imgs.filter(i => {
+        for (const e of ['minimal','medium']) {
+          const s = i[`flash_lite_seg_single_${e}_label`]
+          const m = i[`flash_lite_seg_multi_${e}_label`]
+          if (s && m && s !== m) return true
+        }
+        return false
+      })
+    } else if (v === 'multi_rescue_multiple') {
+      imgs = imgs.filter(i => {
+        const claudeMul = (cl(i) || '').endsWith('multiple')
+        const multiKeep = i.flash_lite_seg_multi_minimal_label === 'keep' || i.flash_lite_seg_multi_medium_label === 'keep'
+        return claudeMul && multiKeep
+      })
+    } else if (v === 'multi_full_img') {
+      imgs = imgs.filter(i =>
+        i.flash_lite_seg_multi_minimal_use_full_image || i.flash_lite_seg_multi_medium_use_full_image
+      )
+    } else if (v === 'multi_multi_segments') {
+      imgs = imgs.filter(i =>
+        ((i.flash_lite_seg_multi_minimal_keep_segments || []).length >= 2) ||
+        ((i.flash_lite_seg_multi_medium_keep_segments || []).length >= 2)
+      )
+    } else if (v === 'multi_no_segments') {
+      imgs = imgs.filter(i => {
+        for (const e of ['minimal','medium']) {
+          const lbl = i[`flash_lite_seg_multi_${e}_label`]
+          const segs = i[`flash_lite_seg_multi_${e}_keep_segments`] || []
+          const full = i[`flash_lite_seg_multi_${e}_use_full_image`]
+          if (lbl === 'keep' && segs.length === 0 && !full) return true
+        }
+        return false
       })
     }
   }
