@@ -317,9 +317,25 @@ def main():
     # Gemini 3.1 Flash Lite, ONE image per request (no grid). Drop-in
     # replacement for the gridded Pro curator that the Neocyba metrosideros
     # adjudication showed gets boosted accuracy from single-image input.
+    #
+    # We bucket per `thinkingLevel` (off/low/medium/high) by parsing the
+    # FILENAME, since the `effort` field inside older JSON files is wrong
+    # (they say "low" even when no thinking config was sent at all). The
+    # filename convention from scripts/curate_with_flash_lite.py is:
+    #   curation_flash_lite_singleimg_<effort>_<timestamp>.json  (newer)
+    #   curation_flash_lite_singleimg_<timestamp>.json          (older = "off")
     flash_lite_lookup = {}
+    import re as _re
     for path in sorted(BASE.glob("curation_flash_lite_*.json"),
                        key=lambda p: p.stat().st_mtime, reverse=True):
+        m = _re.match(r"curation_flash_lite_singleimg_(?P<eff>off|low|medium|high)_[\d_]+\.json$",
+                      path.name)
+        if m:
+            effort = m.group("eff")
+        elif _re.match(r"curation_flash_lite_singleimg_[\d_]+\.json$", path.name):
+            effort = "off"
+        else:
+            effort = "off"
         try:
             raw = load_json(path)
         except Exception:
@@ -331,15 +347,16 @@ def main():
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
             slot = flash_lite_lookup.setdefault(photo_id, {})
-            if slot.get("flash_lite_label"):  # newest-first wins
+            key_label = f"flash_lite_{effort}_label"
+            if slot.get(key_label):  # newest-first wins per effort bucket
                 continue
-            slot["flash_lite_label"] = normalize_curation_label(entry.get("label"))
-            slot["flash_lite_confidence"] = entry.get("confidence")
+            slot[key_label] = normalize_curation_label(entry.get("label"))
+            slot[f"flash_lite_{effort}_confidence"] = entry.get("confidence")
             if "use_yolo_crop" in entry:
-                slot["flash_lite_use_yolo_crop"] = entry.get("use_yolo_crop")
+                slot[f"flash_lite_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
             if entry.get("reason"):
-                slot["flash_lite_reason"] = entry.get("reason")
-        print(f"    Flash Lite lookup: {len(raw)} entries from {path.name}")
+                slot[f"flash_lite_{effort}_reason"] = entry.get("reason")
+        print(f"    Flash Lite [{effort}] lookup: {len(raw)} entries from {path.name}")
 
     # Gemini 3.1 Pro batch curation. Same image manifest as Claude (the
     # diverse-300 stratified sample). Each entry records its `effort`
@@ -623,7 +640,7 @@ def main():
         return any(r.get(f"gemini_pro_{e}_label") for e in ("low", "medium", "high"))
 
     def _has_flash_lite(r):
-        return bool(r.get("flash_lite_label"))
+        return any(r.get(f"flash_lite_{e}_label") for e in ("off", "low", "medium", "high"))
 
     pinned_ids = {r["id"] for r in all_records
                   if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)

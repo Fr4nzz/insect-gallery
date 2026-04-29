@@ -143,7 +143,8 @@
           <label>Flash Lite (single img)</label>
           <select v-model="selectedFlashLite">
             <option value="">Any</option>
-            <option value="any">Has Flash Lite data (300 imgs)</option>
+            <option value="any">Has Flash Lite data (any effort)</option>
+            <option value="efforts_differ">Flash Lite efforts disagree (off/low/med/high split)</option>
             <option value="claude_vs_fl_disagree">Claude vs Flash Lite disagree</option>
             <option value="fl_keep_claude_drop">Flash Lite keep, Claude dropped</option>
             <option value="fl_drop_claude_keep">Flash Lite dropped, Claude kept</option>
@@ -468,31 +469,39 @@
                 <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
               </td>
             </tr>
-            <tr v-if="modalImage.flash_lite_label">
+            <tr v-if="hasFlashLiteAny(modalImage)">
               <td colspan="2" style="background:#fce7f3; padding:0.5rem; font-weight:700; color:#9d174d">
-                Gemini 3.1 Flash Lite (single image per request, no grid — same 300-img set)
+                Gemini 3.1 Flash Lite (single image per request, no grid — thinkingLevel sweep)
               </td>
             </tr>
-            <tr v-if="modalImage.flash_lite_label">
-              <td>flash lite</td>
-              <td>
-                <span v-if="modalImage.flash_lite_label === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
-                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage.flash_lite_label.toUpperCase() }}</span>
-                <span v-if="modalImage.flash_lite_confidence" style="color:#666; margin-left:0.5rem">
-                  ({{ (modalImage.flash_lite_confidence * 100).toFixed(0) }}%)
-                </span>
-                <span v-if="modalImage.flash_lite_label === 'keep' && modalImage.flash_lite_use_yolo_crop !== undefined && modalImage.flash_lite_use_yolo_crop !== null"
-                      style="margin-left:0.5rem; font-size:0.85em">
-                  <span v-if="modalImage.flash_lite_use_yolo_crop" style="color:#22c55e">use YOLO crop</span>
-                  <span v-else style="color:#0ea5e9">use FULL image</span>
-                </span>
+            <template v-for="effort in ['off','low','medium','high']" :key="`fl-${effort}`">
+              <tr v-if="modalImage[`flash_lite_${effort}_label`]">
+                <td>flash lite {{ effort }}</td>
+                <td>
+                  <span v-if="modalImage[`flash_lite_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`flash_lite_${effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`flash_lite_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
+                    ({{ (modalImage[`flash_lite_${effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                  <span v-if="modalImage[`flash_lite_${effort}_label`] === 'keep' && modalImage[`flash_lite_${effort}_use_yolo_crop`] !== undefined && modalImage[`flash_lite_${effort}_use_yolo_crop`] !== null"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`flash_lite_${effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
+                    <span v-else style="color:#0ea5e9">use FULL image</span>
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="modalImage[`flash_lite_${effort}_reason`]">
+                <td>flash lite {{ effort }} reason</td>
+                <td><em>{{ modalImage[`flash_lite_${effort}_reason`] }}</em></td>
+              </tr>
+            </template>
+            <tr v-if="hasFlashLiteAny(modalImage) && flashLiteEffortsDiffer(modalImage)">
+              <td>flash lite effort split</td>
+              <td style="color:#9d174d; font-weight:600">
+                Flash Lite verdicts shift across thinking levels — borderline case
               </td>
             </tr>
-            <tr v-if="modalImage.flash_lite_reason">
-              <td>flash lite reason</td>
-              <td><em>{{ modalImage.flash_lite_reason }}</em></td>
-            </tr>
-            <tr v-if="modalImage.flash_lite_label && hasClaudeAny(modalImage) && claudeVsFlashLiteDisagree(modalImage)">
+            <tr v-if="hasFlashLiteAny(modalImage) && hasClaudeAny(modalImage) && claudeVsFlashLiteDisagree(modalImage)">
               <td>claude vs flash lite</td>
               <td style="color:#9d174d; font-weight:600">{{ claudeVsFlashLiteDisagree(modalImage) }}</td>
             </tr>
@@ -688,15 +697,33 @@ function geminiProEffortsDiffer(img) {
   return labels.some(l => l !== labels[0])
 }
 
+function flashLiteCanonical(img) {
+  // Pick high > medium > low > off as canonical when comparing.
+  return img.flash_lite_high_label || img.flash_lite_medium_label
+       || img.flash_lite_low_label  || img.flash_lite_off_label
+}
+
+function hasFlashLiteAny(img) {
+  return !!flashLiteCanonical(img)
+}
+
+function flashLiteEffortsDiffer(img) {
+  const labels = ['off','low','medium','high']
+    .map(e => img[`flash_lite_${e}_label`])
+    .filter(Boolean)
+  if (labels.length < 2) return false
+  return labels.some(l => l !== labels[0])
+}
+
 function claudeVsFlashLiteDisagree(img) {
-  const fl = img.flash_lite_label
+  const fl = flashLiteCanonical(img)
   const cl = img.claude_medium_label || img.claude_high_label || img.claude_low_label
   if (!fl || !cl) return null
   if (fl === cl) return null
   const flKeep = fl === 'keep'
   const clKeep = cl === 'keep'
-  if (clKeep && !flKeep) return `Flash Lite drops where Claude keeps (${fl})`
-  if (!clKeep && flKeep) return `Flash Lite keeps where Claude drops (${cl})`
+  if (clKeep && !flKeep) return `Flash Lite (high) drops where Claude keeps (${fl})`
+  if (!clKeep && flKeep) return `Flash Lite (high) keeps where Claude drops (${cl})`
   return `Different drop reason: claude=${cl} flash_lite=${fl}`
 }
 
@@ -968,11 +995,21 @@ const filteredImages = computed(() => {
   }
   if (selectedFlashLite.value) {
     const v = selectedFlashLite.value
-    const fl = (i) => i.flash_lite_label
+    const fl = (i) => i.flash_lite_high_label || i.flash_lite_medium_label
+                   || i.flash_lite_low_label  || i.flash_lite_off_label
     const cl = (i) => i.claude_medium_label || i.claude_low_label || i.claude_high_label
-    const matchLbl = (i, name) => fl(i) === name || fl(i) === `drop_${name}`
+    const anyFl = (i) => !!fl(i)
+    const matchLbl = (i, name) => ['off','low','medium','high'].some(e => {
+      const lab = i[`flash_lite_${e}_label`]
+      return lab === name || lab === `drop_${name}`
+    })
     if (v === 'any') {
-      imgs = imgs.filter(i => fl(i))
+      imgs = imgs.filter(anyFl)
+    } else if (v === 'efforts_differ') {
+      imgs = imgs.filter(i => {
+        const labels = ['off','low','medium','high'].map(e => i[`flash_lite_${e}_label`]).filter(Boolean)
+        return labels.length >= 2 && labels.some(l => l !== labels[0])
+      })
     } else if (v === 'claude_vs_fl_disagree') {
       imgs = imgs.filter(i => fl(i) && cl(i) && fl(i) !== cl(i))
     } else if (v === 'fl_keep_claude_drop') {
