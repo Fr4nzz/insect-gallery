@@ -193,12 +193,21 @@ def main():
             }
         print(f"    v3 curation lookup: {len(v3_lookup)} entries")
 
-    # Claude Opus 4.7 smoke test: same 45 images run at 3 effort levels
-    # (low / medium / high) via `claude -p` CLI shellout. Lets us spot-check
-    # whether more reasoning produces different verdicts on the same input.
-    claude_lookup = {}
-    for effort in ("low", "medium", "high"):
-        path = BASE / f"curation_claude_smoketest_{effort}.json"
+    # OpenAI Codex sweep: same 45 images run at 3 models × 2 efforts via
+    # `codex exec` CLI (subscription auth). Field naming normalises model
+    # IDs (gpt-5.4 -> gpt54, gpt-5.4-mini -> gpt54mini, etc.) so JS keys
+    # don't need quoting.
+    codex_lookup = {}
+    codex_combos = [
+        ("gpt-54",       "gpt54",      "low"),
+        ("gpt-54",       "gpt54",      "medium"),
+        ("gpt-54-mini",  "gpt54mini",  "low"),
+        ("gpt-54-mini",  "gpt54mini",  "medium"),
+        ("gpt-53-codex", "gpt53codex", "low"),
+        ("gpt-53-codex", "gpt53codex", "medium"),
+    ]
+    for file_model, short_model, effort in codex_combos:
+        path = BASE / f"curation_codex_{file_model}_{effort}.json"
         if not path.exists():
             continue
         raw = load_json(path)
@@ -206,8 +215,46 @@ def main():
             photo_id = os.path.splitext(os.path.basename(rel_key))[0]
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
-            claude_lookup.setdefault(photo_id, {})[f"claude_{effort}_label"] = entry.get("label")
-            claude_lookup[photo_id][f"claude_{effort}_confidence"] = entry.get("confidence")
+            codex_lookup.setdefault(photo_id, {})[f"codex_{short_model}_{effort}_label"] = entry.get("label")
+            codex_lookup[photo_id][f"codex_{short_model}_{effort}_confidence"] = entry.get("confidence")
+            if "use_yolo_crop" in entry:
+                codex_lookup[photo_id][f"codex_{short_model}_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
+            if entry.get("reason"):
+                codex_lookup[photo_id][f"codex_{short_model}_{effort}_reason"] = entry.get("reason")
+        print(f"    Codex {file_model}/{effort}: {len(raw)} entries")
+
+    # Claude Opus 4.7 smoke test: same 45 images run at 3 effort levels
+    # (low / medium / high) via `claude -p` CLI shellout. Lets us spot-check
+    # whether more reasoning produces different verdicts on the same input.
+    claude_lookup = {}
+    # Sources for Claude curation, in order of priority. Smoke-test files
+    # (45 images × 3 effort levels) populate claude_low/medium/high. The
+    # Plecoptera 300-image full-family curation (single effort=low) only
+    # populates claude_low, but it overlaps with the Codex comparison
+    # manifest so we get Claude vs Codex on the same images.
+    claude_sources = [
+        ("low",    "curation_claude_smoketest_low.json"),
+        ("medium", "curation_claude_smoketest_medium.json"),
+        ("high",   "curation_claude_smoketest_high.json"),
+        ("low",    "curation_claude_low_plecoptera.json"),
+    ]
+    for effort, fname in claude_sources:
+        path = BASE / fname
+        if not path.exists():
+            continue
+        raw = load_json(path)
+        for rel_key, entry in raw.items():
+            photo_id = os.path.splitext(os.path.basename(rel_key))[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            # Don't overwrite if already populated (smoke-test files take
+            # precedence over the Plecoptera bulk file for any image
+            # appearing in both).
+            slot = claude_lookup.setdefault(photo_id, {})
+            if slot.get(f"claude_{effort}_label"):
+                continue
+            slot[f"claude_{effort}_label"] = entry.get("label")
+            slot[f"claude_{effort}_confidence"] = entry.get("confidence")
             # New v2 schema fields (only present on the latest run; gracefully
             # absent on older smoketest files):
             if "use_yolo_crop" in entry:
@@ -318,6 +365,7 @@ def main():
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
+            **(codex_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)
@@ -364,6 +412,7 @@ def main():
             "yolo_gemini_label": yolo.get("gemini_label"),
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
+            **(codex_lookup.get(photo_id, {})),
         }
 
         all_records.append(record)
@@ -445,27 +494,34 @@ def main():
             for r in extra:
                 sampled_ids.add(r["id"])
 
-    # Force-include any record with Claude smoke-test data so all 45 imgs
-    # surface in the gallery for spot-check (otherwise the family/keep cap
-    # above can drop most of them).
-    claude_ids = {r["id"] for r in all_records
-                  if any(r.get(f"claude_{e}_label")
-                         for e in ("low", "medium", "high"))}
+    # Force-include any record that has Claude smoke-test data OR Codex
+    # comparison data, so all 45 imgs surface in the gallery for spot-check.
+    def _has_claude(r):
+        return any(r.get(f"claude_{e}_label") for e in ("low", "medium", "high"))
+
+    def _has_codex(r):
+        for sm in ("gpt54", "gpt54mini", "gpt53codex"):
+            for e in ("low", "medium"):
+                if r.get(f"codex_{sm}_{e}_label"):
+                    return True
+        return False
+
+    pinned_ids = {r["id"] for r in all_records if _has_claude(r) or _has_codex(r)}
     for r in all_records:
-        if r["id"] in claude_ids and r["id"] not in sampled_ids:
+        if r["id"] in pinned_ids and r["id"] not in sampled_ids:
             sampled.append(r)
             sampled_ids.add(r["id"])
 
-    # Cap total to SAMPLE_TARGET — drops + Claude smoke-test always retained,
+    # Cap total to SAMPLE_TARGET — drops + smoke-test pins always retained,
     # trim from generic keeps.
     if len(sampled) > SAMPLE_TARGET:
         kept_pinned = [
             r for r in sampled
-            if "drop" in (r["curation_status"] or "") or r["id"] in claude_ids
+            if "drop" in (r["curation_status"] or "") or r["id"] in pinned_ids
         ]
         kept_other = [
             r for r in sampled
-            if "drop" not in (r["curation_status"] or "") and r["id"] not in claude_ids
+            if "drop" not in (r["curation_status"] or "") and r["id"] not in pinned_ids
         ]
         budget = max(0, SAMPLE_TARGET - len(kept_pinned))
         if len(kept_other) > budget:

@@ -140,6 +140,18 @@
         </div>
 
         <div class="filter-group">
+          <label>Codex</label>
+          <select v-model="selectedCodex">
+            <option value="">Any</option>
+            <option value="any">Has Codex data (45 imgs)</option>
+            <option value="combos_differ">Codex combos disagree</option>
+            <option value="claude_vs_codex">Claude vs Codex disagree (gpt-5.4 medium)</option>
+            <option value="codex_drop_other">Codex drop_other (any combo)</option>
+            <option value="codex_keep_all">Codex keep at all 6 combos</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Search</label>
           <input type="text" v-model="searchText" placeholder="Species, genus..." />
         </div>
@@ -422,6 +434,36 @@
                 <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
               </td>
             </tr>
+            <tr v-if="hasCodexAny(modalImage)">
+              <td colspan="2" style="background:#dcfce7; padding:0.5rem; font-weight:700; color:#166534">
+                OpenAI Codex (3 models × 2 efforts, same 45 images as Claude)
+              </td>
+            </tr>
+            <template v-for="(combo, idx) in codexCombos" :key="idx">
+              <tr v-if="modalImage[`codex_${combo.short}_${combo.effort}_label`]">
+                <td>{{ combo.short }} {{ combo.effort }}</td>
+                <td>
+                  <span v-if="modalImage[`codex_${combo.short}_${combo.effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`codex_${combo.short}_${combo.effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`codex_${combo.short}_${combo.effort}_confidence`]" style="color:#666; margin-left:0.5rem">
+                    ({{ (modalImage[`codex_${combo.short}_${combo.effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                  <span v-if="modalImage[`codex_${combo.short}_${combo.effort}_label`] === 'keep' && modalImage[`codex_${combo.short}_${combo.effort}_use_yolo_crop`] !== undefined && modalImage[`codex_${combo.short}_${combo.effort}_use_yolo_crop`] !== null"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`codex_${combo.short}_${combo.effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
+                    <span v-else style="color:#0ea5e9">use FULL image</span>
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="modalImage[`codex_${combo.short}_${combo.effort}_reason`]">
+                <td>{{ combo.short }} {{ combo.effort }} reason</td>
+                <td><em>{{ modalImage[`codex_${combo.short}_${combo.effort}_reason`] }}</em></td>
+              </tr>
+            </template>
+            <tr v-if="hasCodexAny(modalImage) && hasClaudeAny(modalImage) && claudeVsCodexDisagree(modalImage)">
+              <td>claude vs codex</td>
+              <td style="color:#0ea5e9; font-weight:600">{{ claudeVsCodexDisagree(modalImage) }}</td>
+            </tr>
             <tr v-if="modalImage.sam3_confidence !== null && modalImage.sam3_confidence !== undefined">
               <td>SAM3 insect conf</td>
               <td>{{ (modalImage.sam3_confidence * 100).toFixed(1) }}%
@@ -454,6 +496,7 @@ const selectedModel = ref('')
 const selectedProVerdict = ref('')
 const selectedV3 = ref('')
 const selectedClaude = ref('')
+const selectedCodex = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -480,6 +523,48 @@ function hasYoloVerdict(img) {
 
 function hasClaudeAny(img) {
   return !!(img.claude_low_label || img.claude_medium_label || img.claude_high_label)
+}
+
+const codexCombos = [
+  { short: 'gpt54',      effort: 'low'    },
+  { short: 'gpt54',      effort: 'medium' },
+  { short: 'gpt54mini',  effort: 'low'    },
+  { short: 'gpt54mini',  effort: 'medium' },
+  { short: 'gpt53codex', effort: 'low'    },
+  { short: 'gpt53codex', effort: 'medium' },
+]
+
+function hasCodexAny(img) {
+  return codexCombos.some(c => img[`codex_${c.short}_${c.effort}_label`])
+}
+
+function codexLabels(img) {
+  return codexCombos
+    .map(c => img[`codex_${c.short}_${c.effort}_label`])
+    .filter(Boolean)
+}
+
+function claudeMedianLabel(img) {
+  return img.claude_medium_label || img.claude_low_label || img.claude_high_label
+}
+
+function claudeVsCodexDisagree(img) {
+  // Compare Claude medium (or fall-through) vs gpt-5.4 medium (canonical Codex pick).
+  const cl = claudeMedianLabel(img)
+  const cx = img.codex_gpt54_medium_label || img.codex_gpt54_low_label
+  if (!cl || !cx) return null
+  const clKeep = cl === 'keep'
+  const cxKeep = cx === 'keep'
+  if (clKeep && !cxKeep) return `Codex (gpt-5.4) drops where Claude keeps (${cx})`
+  if (!clKeep && cxKeep) return `Codex (gpt-5.4) keeps where Claude drops (${cl})`
+  if (cl !== cx) return `Same direction, different reason: claude=${cl} codex=${cx}`
+  return null
+}
+
+function codexEffortsDiffer(img) {
+  // Across all 6 codex combos, do labels disagree?
+  const labels = codexLabels(img)
+  return labels.length >= 2 && labels.some(l => l !== labels[0])
 }
 
 function claudeEffortsDiffer(img) {
@@ -711,6 +796,35 @@ const filteredImages = computed(() => {
         return efforts.some(e =>
           i[`claude_${e}_label`] === 'keep' && i[`claude_${e}_use_yolo_crop`] === false
         )
+      })
+    }
+  }
+  if (selectedCodex.value) {
+    const v = selectedCodex.value
+    const has = (i) => codexCombos.some(c => i[`codex_${c.short}_${c.effort}_label`])
+    if (v === 'any') {
+      imgs = imgs.filter(has)
+    } else if (v === 'combos_differ') {
+      imgs = imgs.filter(i => {
+        const labels = codexCombos
+          .map(c => i[`codex_${c.short}_${c.effort}_label`])
+          .filter(Boolean)
+        return labels.length >= 2 && labels.some(l => l !== labels[0])
+      })
+    } else if (v === 'claude_vs_codex') {
+      imgs = imgs.filter(i => {
+        const cl = i.claude_medium_label || i.claude_low_label || i.claude_high_label
+        const cx = i.codex_gpt54_medium_label || i.codex_gpt54_low_label
+        return cl && cx && cl !== cx
+      })
+    } else if (v === 'codex_drop_other') {
+      imgs = imgs.filter(i =>
+        codexCombos.some(c => i[`codex_${c.short}_${c.effort}_label`] === 'drop_other')
+      )
+    } else if (v === 'codex_keep_all') {
+      imgs = imgs.filter(i => {
+        const labels = codexCombos.map(c => i[`codex_${c.short}_${c.effort}_label`])
+        return labels.every(l => l === 'keep')
       })
     }
   }
