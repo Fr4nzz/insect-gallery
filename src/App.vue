@@ -144,14 +144,15 @@
           <select v-model="selectedGeminiPro">
             <option value="">Any</option>
             <option value="any">Has Gemini Pro data (300 imgs)</option>
+            <option value="efforts_differ">Gemini Pro low vs high disagree</option>
             <option value="claude_vs_gp_disagree">Claude vs Gemini Pro disagree</option>
             <option value="gp_keep_claude_drop">Gemini Pro keep, Claude dropped</option>
             <option value="gp_drop_claude_keep">Gemini Pro dropped, Claude kept</option>
-            <option value="gp_dead">Gemini Pro = dead</option>
-            <option value="gp_multiple">Gemini Pro = multiple</option>
-            <option value="gp_quality">Gemini Pro = quality</option>
-            <option value="gp_larva">Gemini Pro = larva</option>
-            <option value="gp_other">Gemini Pro = other</option>
+            <option value="gp_dead">Gemini Pro = dead (any effort)</option>
+            <option value="gp_multiple">Gemini Pro = multiple (any effort)</option>
+            <option value="gp_quality">Gemini Pro = quality (any effort)</option>
+            <option value="gp_larva">Gemini Pro = larva (any effort)</option>
+            <option value="gp_other">Gemini Pro = other (any effort)</option>
           </select>
         </div>
 
@@ -450,37 +451,41 @@
                 <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
               </td>
             </tr>
-            <tr v-if="modalImage.gemini_pro_label">
+            <tr v-if="hasGeminiProAny(modalImage)">
               <td colspan="2" style="background:#ede9fe; padding:0.5rem; font-weight:700; color:#5b21b6">
-                Gemini 3.1 Pro (Vertex Batch, 300-image diverse set)
+                Gemini 3.1 Pro (Vertex Batch, same 300-image diverse set as Claude)
               </td>
             </tr>
-            <tr v-if="modalImage.gemini_pro_label">
-              <td>gemini 3.1 pro</td>
-              <td>
-                <span v-if="modalImage.gemini_pro_label === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
-                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage.gemini_pro_label.toUpperCase() }}</span>
-                <span v-if="modalImage.gemini_pro_confidence" style="color:#666; margin-left:0.5rem">
-                  ({{ (modalImage.gemini_pro_confidence * 100).toFixed(0) }}%)
-                </span>
-                <span v-if="modalImage.gemini_pro_label === 'keep' && modalImage.gemini_pro_use_yolo_crop !== undefined && modalImage.gemini_pro_use_yolo_crop !== null"
-                      style="margin-left:0.5rem; font-size:0.85em">
-                  <span v-if="modalImage.gemini_pro_use_yolo_crop" style="color:#22c55e">use YOLO crop</span>
-                  <span v-else style="color:#0ea5e9">use FULL image</span>
-                </span>
-              </td>
-            </tr>
-            <tr v-if="modalImage.gemini_pro_reason">
-              <td>gemini 3.1 pro reason</td>
-              <td><em>{{ modalImage.gemini_pro_reason }}</em></td>
-            </tr>
-            <tr v-if="modalImage.gemini_pro_label && hasClaudeAny(modalImage) && (modalImage.gemini_pro_label !== (modalImage.claude_low_label || modalImage.claude_medium_label || modalImage.claude_high_label))">
-              <td>claude vs gemini pro</td>
+            <template v-for="effort in ['low','medium','high']" :key="`gp-${effort}`">
+              <tr v-if="modalImage[`gemini_pro_${effort}_label`]">
+                <td>gemini pro {{ effort }}</td>
+                <td>
+                  <span v-if="modalImage[`gemini_pro_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`gemini_pro_${effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`gemini_pro_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
+                    ({{ (modalImage[`gemini_pro_${effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                  <span v-if="modalImage[`gemini_pro_${effort}_label`] === 'keep' && modalImage[`gemini_pro_${effort}_use_yolo_crop`] !== undefined && modalImage[`gemini_pro_${effort}_use_yolo_crop`] !== null"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`gemini_pro_${effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
+                    <span v-else style="color:#0ea5e9">use FULL image</span>
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="modalImage[`gemini_pro_${effort}_reason`]">
+                <td>gemini pro {{ effort }} reason</td>
+                <td><em>{{ modalImage[`gemini_pro_${effort}_reason`] }}</em></td>
+              </tr>
+            </template>
+            <tr v-if="hasGeminiProAny(modalImage) && geminiProEffortsDiffer(modalImage)">
+              <td>gemini pro effort split</td>
               <td style="color:#7c3aed; font-weight:600">
-                disagree:
-                Claude={{ (modalImage.claude_low_label || modalImage.claude_medium_label || modalImage.claude_high_label || '?').toUpperCase() }},
-                Gemini Pro={{ modalImage.gemini_pro_label.toUpperCase() }}
+                Gemini Pro verdicts differ across effort levels — model uncertain
               </td>
+            </tr>
+            <tr v-if="hasGeminiProAny(modalImage) && hasClaudeAny(modalImage) && claudeVsGeminiProDisagree(modalImage)">
+              <td>claude vs gemini pro</td>
+              <td style="color:#7c3aed; font-weight:600">{{ claudeVsGeminiProDisagree(modalImage) }}</td>
             </tr>
             <tr v-if="hasCodexAny(modalImage)">
               <td colspan="2" style="background:#dcfce7; padding:0.5rem; font-weight:700; color:#166534">
@@ -623,6 +628,32 @@ function claudeEffortsDiffer(img) {
   if (labels.length < 2) return false
   const first = labels[0]
   return labels.some(l => l !== first)
+}
+
+function hasGeminiProAny(img) {
+  return !!(img.gemini_pro_low_label || img.gemini_pro_medium_label || img.gemini_pro_high_label)
+}
+
+function geminiProEffortsDiffer(img) {
+  const labels = ['gemini_pro_low_label', 'gemini_pro_medium_label', 'gemini_pro_high_label']
+    .map(k => img[k])
+    .filter(Boolean)
+  if (labels.length < 2) return false
+  return labels.some(l => l !== labels[0])
+}
+
+function claudeVsGeminiProDisagree(img) {
+  // Use HIGH effort as canonical Gemini Pro verdict (best agreement with Claude),
+  // falling back to medium then low.
+  const gp = img.gemini_pro_high_label || img.gemini_pro_medium_label || img.gemini_pro_low_label
+  const cl = img.claude_medium_label || img.claude_high_label || img.claude_low_label
+  if (!gp || !cl) return null
+  if (gp === cl) return null
+  const gpKeep = gp === 'keep'
+  const clKeep = cl === 'keep'
+  if (clKeep && !gpKeep) return `Gemini Pro drops where Claude keeps (${gp})`
+  if (!clKeep && gpKeep) return `Gemini Pro keeps where Claude drops (${cl})`
+  return `Different drop reason: claude=${cl} gemini_pro=${gp}`
 }
 
 function claudeVsV1Disagrees(img) {
@@ -879,25 +910,37 @@ const filteredImages = computed(() => {
   }
   if (selectedGeminiPro.value) {
     const v = selectedGeminiPro.value
+    // Canonical Gemini Pro pick: high > medium > low (high agrees better with Claude per our 300-img test)
+    const gp = (i) => i.gemini_pro_high_label || i.gemini_pro_medium_label || i.gemini_pro_low_label
     const cl = (i) => i.claude_medium_label || i.claude_low_label || i.claude_high_label
+    const anyGp = (i) => !!(i.gemini_pro_low_label || i.gemini_pro_medium_label || i.gemini_pro_high_label)
+    const matchLbl = (i, name) => ['low','medium','high'].some(e => {
+      const v = i[`gemini_pro_${e}_label`]
+      return v === name || v === `drop_${name}`
+    })
     if (v === 'any') {
-      imgs = imgs.filter(i => i.gemini_pro_label)
+      imgs = imgs.filter(anyGp)
     } else if (v === 'claude_vs_gp_disagree') {
-      imgs = imgs.filter(i => i.gemini_pro_label && cl(i) && i.gemini_pro_label !== cl(i))
+      imgs = imgs.filter(i => gp(i) && cl(i) && gp(i) !== cl(i))
+    } else if (v === 'efforts_differ') {
+      imgs = imgs.filter(i => {
+        const labels = ['low','medium','high'].map(e => i[`gemini_pro_${e}_label`]).filter(Boolean)
+        return labels.length >= 2 && labels.some(l => l !== labels[0])
+      })
     } else if (v === 'gp_keep_claude_drop') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'keep' && cl(i) && cl(i) !== 'keep')
+      imgs = imgs.filter(i => gp(i) === 'keep' && cl(i) && cl(i) !== 'keep')
     } else if (v === 'gp_drop_claude_keep') {
-      imgs = imgs.filter(i => i.gemini_pro_label && i.gemini_pro_label !== 'keep' && cl(i) === 'keep')
+      imgs = imgs.filter(i => gp(i) && gp(i) !== 'keep' && cl(i) === 'keep')
     } else if (v === 'gp_dead') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_dead' || i.gemini_pro_label === 'dead')
+      imgs = imgs.filter(i => matchLbl(i, 'dead'))
     } else if (v === 'gp_multiple') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_multiple' || i.gemini_pro_label === 'multiple')
+      imgs = imgs.filter(i => matchLbl(i, 'multiple'))
     } else if (v === 'gp_quality') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_quality' || i.gemini_pro_label === 'quality')
+      imgs = imgs.filter(i => matchLbl(i, 'quality'))
     } else if (v === 'gp_larva') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_larva' || i.gemini_pro_label === 'larva')
+      imgs = imgs.filter(i => matchLbl(i, 'larva'))
     } else if (v === 'gp_other') {
-      imgs = imgs.filter(i => i.gemini_pro_label === 'drop_other' || i.gemini_pro_label === 'other')
+      imgs = imgs.filter(i => matchLbl(i, 'other'))
     }
   }
   if (searchText.value) {

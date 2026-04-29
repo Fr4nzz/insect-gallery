@@ -315,8 +315,10 @@ def main():
         print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
 
     # Gemini 3.1 Pro batch curation. Same image manifest as Claude (the
-    # diverse-300 stratified sample) — so the gallery can render side-by-side
-    # comparisons of what each VLM said about the same cell.
+    # diverse-300 stratified sample). Each entry records its `effort`
+    # (low/medium/high) so we key the field names by effort — same pattern
+    # as Claude's claude_low/medium/high. Lets the gallery show all efforts
+    # side-by-side and surface within-model disagreement.
     gemini_pro_lookup = {}
     for path in sorted(BASE.glob("curation_gemini_pro_*.json"),
                        key=lambda p: p.stat().st_mtime, reverse=True):
@@ -330,15 +332,17 @@ def main():
             photo_id = os.path.splitext(os.path.basename(rel_key))[0]
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
+            effort = entry.get("effort", "low")
             slot = gemini_pro_lookup.setdefault(photo_id, {})
-            if slot.get("gemini_pro_label"):  # newest-first wins
+            key_label = f"gemini_pro_{effort}_label"
+            if slot.get(key_label):  # newest-first wins per effort
                 continue
-            slot["gemini_pro_label"] = normalize_curation_label(entry.get("label"))
-            slot["gemini_pro_confidence"] = entry.get("confidence")
+            slot[key_label] = normalize_curation_label(entry.get("label"))
+            slot[f"gemini_pro_{effort}_confidence"] = entry.get("confidence")
             if "use_yolo_crop" in entry:
-                slot["gemini_pro_use_yolo_crop"] = entry.get("use_yolo_crop")
+                slot[f"gemini_pro_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
             if entry.get("reason"):
-                slot["gemini_pro_reason"] = entry.get("reason")
+                slot[f"gemini_pro_{effort}_reason"] = entry.get("reason")
         print(f"    Gemini Pro lookup: {len(raw)} entries from {path.name}")
 
     sam3_lookup = {}
@@ -587,7 +591,7 @@ def main():
         return False
 
     def _has_gemini_pro(r):
-        return bool(r.get("gemini_pro_label"))
+        return any(r.get(f"gemini_pro_{e}_label") for e in ("low", "medium", "high"))
 
     pinned_ids = {r["id"] for r in all_records
                   if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)}
