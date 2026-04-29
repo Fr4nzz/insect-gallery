@@ -446,13 +446,38 @@ def main():
                 entry.get("all_dets") or [],
                 key=lambda d: -d.get("score", 0),
             )
+
+            # NMS-dedup at IoU 0.5 so the user sees the same numbered
+            # bbox set Gemini sees — YOLO sometimes emits near-duplicate
+            # detections of the same insect, which makes #2/#3 redundant
+            # and the model picks them over the actually-distinct second
+            # insect. Same logic as `nms_dedup()` in
+            # scripts/curate_with_flash_lite_segments.py.
+            def _iou(a, b):
+                ax0, ay0, ax1, ay1 = a
+                bx0, by0, bx1, by1 = b
+                ix0, iy0 = max(ax0, bx0), max(ay0, by0)
+                ix1, iy1 = min(ax1, bx1), min(ay1, by1)
+                iw, ih = max(0, ix1 - ix0), max(0, iy1 - iy0)
+                inter = iw * ih
+                if inter == 0: return 0.0
+                aa = max(0, ax1 - ax0) * max(0, ay1 - ay0)
+                bb = max(0, bx1 - bx0) * max(0, by1 - by0)
+                u = aa + bb - inter
+                return inter / u if u > 0 else 0.0
+            deduped = []
+            for d in all_dets:
+                if any(_iou(d["xyxy"], k["xyxy"]) > 0.5 for k in deduped):
+                    continue
+                deduped.append(d)
+
             best_xyxy = entry.get("bbox_orig_xyxy")
-            if not best_xyxy and all_dets:
-                best_xyxy = all_dets[0]["xyxy"]
+            if not best_xyxy and deduped:
+                best_xyxy = deduped[0]["xyxy"]
             if best_xyxy:
                 row[f"{prefix}_bbox"] = [round(float(v), 1) for v in best_xyxy]
-            if len(all_dets) > 1:
-                rest = all_dets[1:5]
+            if len(deduped) > 1:
+                rest = deduped[1:5]
                 row[f"{prefix}_other_dets"] = [
                     {
                         "xyxy": [round(float(v), 1) for v in d["xyxy"]],

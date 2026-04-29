@@ -304,21 +304,23 @@
             preserveAspectRatio="xMidYMid meet"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <!-- Other detections (#2, #3, ...) — same numbered overlay Gemini sees in multi-mode -->
-            <template v-for="(d, i) in (modalImage.yolo_other_dets || [])" :key="'o' + i">
+            <!-- Other detections (#2, #3, ...) — drawn in REVERSE z-order so the
+                 highest-confidence "other" (#2) renders on top of #3..#5,
+                 matching the burned-in overlay Gemini sees. -->
+            <template v-for="item in reversedOtherDets(modalImage)" :key="'o' + item.n">
               <rect
-                :x="d.xyxy[0]"
-                :y="d.xyxy[1]"
-                :width="d.xyxy[2] - d.xyxy[0]"
-                :height="d.xyxy[3] - d.xyxy[1]"
+                :x="item.d.xyxy[0]"
+                :y="item.d.xyxy[1]"
+                :width="item.d.xyxy[2] - item.d.xyxy[0]"
+                :height="item.d.xyxy[3] - item.d.xyxy[1]"
                 class="bbox-other"
               />
               <text
-                :x="d.xyxy[0]"
-                :y="Math.max(d.xyxy[1] - bboxFontSize * 0.4, bboxFontSize)"
+                :x="item.d.xyxy[0]"
+                :y="Math.max(item.d.xyxy[1] - bboxFontSize * 0.4, bboxFontSize)"
                 :font-size="bboxFontSize"
                 class="bbox-label bbox-label-other"
-              >#{{ i + 2 }} {{ (d.score * 100).toFixed(0) }}%</text>
+              >#{{ item.n }} {{ (item.d.score * 100).toFixed(0) }}%</text>
             </template>
             <!-- Best detection (#1) — solid green box -->
             <rect
@@ -774,6 +776,14 @@ const flashLiteSegCombos = [
 
 function hasFlashLiteSegAny(img) {
   return flashLiteSegCombos.some(c => img[`flash_lite_seg_${c.mode}_${c.effort}_label`])
+}
+
+function reversedOtherDets(img) {
+  // yolo_other_dets is sorted score-descending: index 0 -> #2, index 1 -> #3, ...
+  // For the SVG we want lower-score boxes to draw FIRST so the higher-score
+  // labels stack on top. Return [(d, n)] pairs in z-order back-to-front.
+  const dets = img.yolo_other_dets || []
+  return dets.map((d, i) => ({ d, n: i + 2 })).slice().reverse()
 }
 
 function flashLiteCanonical(img) {
