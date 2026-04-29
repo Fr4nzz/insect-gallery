@@ -314,6 +314,41 @@ def main():
                 claude_lookup[photo_id][f"claude_{effort}_reason"] = entry.get("reason")
         print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
 
+    # Claude Opus 4.7 with the multi-segment kf/kp/f schema + verbose
+    # justifications (scripts/curate_with_claude_segments.py). Verdicts
+    # are keyed by rel_key with the same field shape as Flash Lite seg
+    # multi-mode output: keep_full, keep_partial, use_full_image,
+    # reason. Surfaced as claude_seg_<effort>_<field>.
+    for path in sorted(BASE.glob("curation_claude_seg_*.json"),
+                       key=lambda p: p.stat().st_mtime, reverse=True):
+        m = re.match(r"curation_claude_seg_(?P<eff>low|medium|high|xhigh|max)_.*\.json$",
+                     path.name)
+        if not m:
+            continue
+        effort = m.group("eff")
+        try:
+            raw = load_json(path)
+        except Exception:
+            continue
+        for rel_key, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            photo_id = os.path.splitext(os.path.basename(rel_key))[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            slot = claude_lookup.setdefault(photo_id, {})
+            key_label = f"claude_seg_{effort}_label"
+            if slot.get(key_label):  # newest-first wins per effort
+                continue
+            slot[key_label] = normalize_curation_label(entry.get("label"))
+            slot[f"claude_seg_{effort}_confidence"] = entry.get("confidence")
+            slot[f"claude_seg_{effort}_keep_full"] = entry.get("keep_full") or []
+            slot[f"claude_seg_{effort}_keep_partial"] = entry.get("keep_partial") or []
+            slot[f"claude_seg_{effort}_use_full_image"] = bool(entry.get("use_full_image"))
+            if entry.get("reason"):
+                slot[f"claude_seg_{effort}_reason"] = entry.get("reason")
+        print(f"    Claude seg [{effort}] lookup: {len(raw)} entries from {path.name}")
+
     # Gemini 3.1 Flash Lite, ONE image per request (no grid). Drop-in
     # replacement for the gridded Pro curator that the Neocyba metrosideros
     # adjudication showed gets boosted accuracy from single-image input.
@@ -686,7 +721,10 @@ def main():
     # Force-include any record that has Claude smoke-test data OR Codex
     # comparison data, so all 45 imgs surface in the gallery for spot-check.
     def _has_claude(r):
-        return any(r.get(f"claude_{e}_label") for e in ("low", "medium", "high"))
+        if any(r.get(f"claude_{e}_label") for e in ("low", "medium", "high")):
+            return True
+        return any(r.get(f"claude_seg_{e}_label")
+                   for e in ("low", "medium", "high", "xhigh", "max"))
 
     def _has_codex(r):
         for sm in ("gpt54", "gpt54mini", "gpt53codex"):

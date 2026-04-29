@@ -526,6 +526,39 @@
               <td>claude vs flash lite</td>
               <td style="color:#9d174d; font-weight:600">{{ claudeVsFlashLiteDisagree(modalImage) }}</td>
             </tr>
+            <tr v-if="hasClaudeSegAny(modalImage)">
+              <td colspan="2" style="background:#fff7ed; padding:0.5rem; font-weight:700; color:#9a3412">
+                Claude Opus 4.7 — segments + verbose justifications
+              </td>
+            </tr>
+            <template v-for="effort in ['low','medium','high']" :key="`cseg-${effort}`">
+              <tr v-if="modalImage[`claude_seg_${effort}_label`]">
+                <td>claude seg {{ effort }}</td>
+                <td>
+                  <span v-if="modalImage[`claude_seg_${effort}_label`] === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                  <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage[`claude_seg_${effort}_label`].toUpperCase() }}</span>
+                  <span v-if="modalImage[`claude_seg_${effort}_confidence`]" style="color:#666; margin-left:0.4rem">
+                    ({{ (modalImage[`claude_seg_${effort}_confidence`] * 100).toFixed(0) }}%)
+                  </span>
+                  <span v-if="modalImage[`claude_seg_${effort}_label`] === 'keep'"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="(modalImage[`claude_seg_${effort}_keep_full`] || []).length > 0" style="color:#22c55e">
+                      kf [{{ (modalImage[`claude_seg_${effort}_keep_full`] || []).join(', ') }}]
+                    </span>
+                    <span v-if="(modalImage[`claude_seg_${effort}_keep_partial`] || []).length > 0" style="color:#f59e0b; margin-left:0.4rem">
+                      kp [{{ (modalImage[`claude_seg_${effort}_keep_partial`] || []).join(', ') }}]
+                    </span>
+                    <span v-if="modalImage[`claude_seg_${effort}_use_full_image`]" style="color:#0ea5e9; margin-left:0.4rem">
+                      use FULL image
+                    </span>
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="modalImage[`claude_seg_${effort}_reason`]">
+                <td>claude seg {{ effort }} reason</td>
+                <td><em>{{ modalImage[`claude_seg_${effort}_reason`] }}</em></td>
+              </tr>
+            </template>
             <tr v-if="hasFlashLiteSegAny(modalImage)">
               <td colspan="2" style="background:#fdf2f8; padding:0.5rem; font-weight:700; color:#831843">
                 Flash Lite — segment experiment (150 imgs, single vs multi × min vs med)
@@ -702,6 +735,12 @@ function hasYoloVerdict(img) {
 
 function hasClaudeAny(img) {
   return !!(img.claude_low_label || img.claude_medium_label || img.claude_high_label)
+}
+
+function hasClaudeSegAny(img) {
+  return !!(img.claude_seg_low_label || img.claude_seg_medium_label
+         || img.claude_seg_high_label || img.claude_seg_xhigh_label
+         || img.claude_seg_max_label)
 }
 
 const codexCombos = [
