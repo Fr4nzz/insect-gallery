@@ -47,6 +47,33 @@ def extract_id_from_path(path: str) -> str:
     return name
 
 
+# As of the prompt-tightening pass, Claude / Codex emit BARE reject labels
+# ("larva", "quality", "other", ...) instead of the historical "drop_larva",
+# "drop_quality", "drop_other", ... convention used by Gemini v1/v2/v3, Pro
+# recurations, and the gallery UI (filter dropdowns, badge logic). To avoid
+# touching all those downstream consumers, normalise at the load boundary:
+# bare -> drop_*. Idempotent for already-prefixed labels and for "keep".
+_BARE_TO_DROP = {
+    "larva": "drop_larva",
+    "pupa": "drop_pupa",
+    "dead": "drop_dead",
+    "habitat": "drop_habitat",
+    "quality": "drop_quality",
+    "not_insect": "drop_not_insect",
+    "multiple": "drop_multiple",
+    "other": "drop_other",
+}
+
+
+def normalize_curation_label(label):
+    """Translate bare reject labels back to the drop_* form the gallery expects.
+
+    Pass-through for None, "keep", and already-prefixed "drop_*" labels."""
+    if not isinstance(label, str):
+        return label
+    return _BARE_TO_DROP.get(label, label)
+
+
 def load_json(path: Path) -> any:
     print(f"  Loading {path.name} ...", end=" ")
     with open(path) as f:
@@ -215,7 +242,7 @@ def main():
             photo_id = os.path.splitext(os.path.basename(rel_key))[0]
             if photo_id.startswith("gbif_"):
                 photo_id = photo_id[5:]
-            codex_lookup.setdefault(photo_id, {})[f"codex_{short_model}_{effort}_label"] = entry.get("label")
+            codex_lookup.setdefault(photo_id, {})[f"codex_{short_model}_{effort}_label"] = normalize_curation_label(entry.get("label"))
             codex_lookup[photo_id][f"codex_{short_model}_{effort}_confidence"] = entry.get("confidence")
             if "use_yolo_crop" in entry:
                 codex_lookup[photo_id][f"codex_{short_model}_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
@@ -238,6 +265,21 @@ def main():
         ("high",   "curation_claude_smoketest_high.json"),
         ("low",    "curation_claude_low_plecoptera.json"),
     ]
+    # Auto-discover sharded outputs from larger runs so future tests
+    # (e.g. _1k_test_shard0of5.json ... _shard4of5.json) get picked up
+    # without editing this list. Each shard infers effort from "low"|"medium"|
+    # "high" in its filename; defaults to "low".
+    for shard_path in sorted(BASE.glob("curation_claude_*_shard*.json")):
+        if any(shard_path.name == fname for _, fname in claude_sources):
+            continue
+        name = shard_path.name
+        if "_medium_" in name or name.startswith("curation_claude_medium"):
+            shard_effort = "medium"
+        elif "_high_" in name or name.startswith("curation_claude_high"):
+            shard_effort = "high"
+        else:
+            shard_effort = "low"
+        claude_sources.append((shard_effort, shard_path.name))
     for effort, fname in claude_sources:
         path = BASE / fname
         if not path.exists():
@@ -253,7 +295,7 @@ def main():
             slot = claude_lookup.setdefault(photo_id, {})
             if slot.get(f"claude_{effort}_label"):
                 continue
-            slot[f"claude_{effort}_label"] = entry.get("label")
+            slot[f"claude_{effort}_label"] = normalize_curation_label(entry.get("label"))
             slot[f"claude_{effort}_confidence"] = entry.get("confidence")
             # New v2 schema fields (only present on the latest run; gracefully
             # absent on older smoketest files):
