@@ -140,6 +140,26 @@
         </div>
 
         <div class="filter-group">
+          <label>Claude segments (290)</label>
+          <select v-model="selectedClaudeSeg">
+            <option value="">Any</option>
+            <option value="any">Has Claude segments data (290 imgs)</option>
+            <option value="cseg_keep">Claude seg = keep</option>
+            <option value="cseg_multi_crops">Claude seg picked ≥2 segments</option>
+            <option value="cseg_partial">Claude seg flagged partial bboxes (kp non-empty)</option>
+            <option value="cseg_full_img">Claude seg picked use_full_image</option>
+            <option value="cseg_larva">Claude seg = larva</option>
+            <option value="cseg_pupa">Claude seg = pupa</option>
+            <option value="cseg_dead">Claude seg = dead</option>
+            <option value="cseg_habitat">Claude seg = habitat</option>
+            <option value="cseg_quality">Claude seg = quality</option>
+            <option value="cseg_not_insect">Claude seg = not_insect</option>
+            <option value="cseg_multiple">Claude seg = multiple</option>
+            <option value="cseg_other">Claude seg = other</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Flash Lite seg-experiment</label>
           <select v-model="selectedFlashLiteSeg">
             <option value="">Any</option>
@@ -705,6 +725,7 @@ const selectedModel = ref('')
 const selectedProVerdict = ref('')
 const selectedV3 = ref('')
 const selectedClaude = ref('')
+const selectedClaudeSeg = ref('')
 const selectedCodex = ref('')
 const selectedGeminiPro = ref('')
 const selectedFlashLite = ref('')
@@ -1090,6 +1111,26 @@ const filteredImages = computed(() => {
           i[`claude_${e}_label`] === 'keep' && i[`claude_${e}_use_yolo_crop`] === false
         )
       })
+    }
+  }
+  if (selectedClaudeSeg.value) {
+    const v = selectedClaudeSeg.value
+    const efforts = ['low', 'medium', 'high']
+    const anyLabel = (i) => efforts.some(e => i[`claude_seg_${e}_label`])
+    const anyEqual = (i, lbl) => efforts.some(e => i[`claude_seg_${e}_label`] === lbl)
+    if (v === 'any') {
+      imgs = imgs.filter(anyLabel)
+    } else if (v === 'cseg_keep') {
+      imgs = imgs.filter(i => anyEqual(i, 'keep'))
+    } else if (v === 'cseg_multi_crops') {
+      imgs = imgs.filter(i => efforts.some(e => (i[`claude_seg_${e}_keep_full`] || []).length >= 2))
+    } else if (v === 'cseg_partial') {
+      imgs = imgs.filter(i => efforts.some(e => (i[`claude_seg_${e}_keep_partial`] || []).length > 0))
+    } else if (v === 'cseg_full_img') {
+      imgs = imgs.filter(i => efforts.some(e => i[`claude_seg_${e}_use_full_image`]))
+    } else if (v.startsWith('cseg_')) {
+      const lbl = v.replace('cseg_', '')
+      imgs = imgs.filter(i => anyEqual(i, lbl))
     }
   }
   if (selectedCodex.value) {
