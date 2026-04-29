@@ -304,15 +304,23 @@
             preserveAspectRatio="xMidYMid meet"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <rect
-              v-for="(d, i) in (modalImage.yolo_other_dets || [])"
-              :key="'o' + i"
-              :x="d.xyxy[0]"
-              :y="d.xyxy[1]"
-              :width="d.xyxy[2] - d.xyxy[0]"
-              :height="d.xyxy[3] - d.xyxy[1]"
-              class="bbox-other"
-            />
+            <!-- Other detections (#2, #3, ...) — same numbered overlay Gemini sees in multi-mode -->
+            <template v-for="(d, i) in (modalImage.yolo_other_dets || [])" :key="'o' + i">
+              <rect
+                :x="d.xyxy[0]"
+                :y="d.xyxy[1]"
+                :width="d.xyxy[2] - d.xyxy[0]"
+                :height="d.xyxy[3] - d.xyxy[1]"
+                class="bbox-other"
+              />
+              <text
+                :x="d.xyxy[0]"
+                :y="Math.max(d.xyxy[1] - bboxFontSize * 0.4, bboxFontSize)"
+                :font-size="bboxFontSize"
+                class="bbox-label bbox-label-other"
+              >#{{ i + 2 }} {{ (d.score * 100).toFixed(0) }}%</text>
+            </template>
+            <!-- Best detection (#1) — solid green box -->
             <rect
               v-if="modalImage.yolo_bbox"
               :x="modalImage.yolo_bbox[0]"
@@ -327,9 +335,7 @@
               :y="Math.max(modalImage.yolo_bbox[1] - bboxFontSize * 0.4, bboxFontSize)"
               :font-size="bboxFontSize"
               :class="['bbox-label', modalImage.yolo_kept ? 'bbox-kept' : 'bbox-dropped']"
-            >
-              YOLO {{ (modalImage.yolo_confidence * 100).toFixed(0) }}%
-            </text>
+            >#1 {{ (modalImage.yolo_confidence * 100).toFixed(0) }}%</text>
           </svg>
           <div v-if="hasYoloVerdict(modalImage)" class="bbox-toggle">
             <label>
@@ -1332,6 +1338,7 @@ td { padding: 0.4rem 0.5rem; }
 .bbox-label { font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,0.6); stroke-width: 3; stroke-linejoin: round; }
 .bbox-label.bbox-kept { fill: #22c55e; }
 .bbox-label.bbox-dropped { fill: #f59e0b; }
+.bbox-label.bbox-label-other { fill: rgba(255,255,255,0.95); }
 .bbox-toggle { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; line-height: 1.2; font-size: 0.8rem; }
 .bbox-toggle label { background: rgba(0,0,0,0.6); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; user-select: none; }
 .bbox-toggle input { margin-right: 0.3rem; }
