@@ -132,7 +132,10 @@
             <option value="claude_rescue">Claude RESCUE (v1 drop → claude keep)</option>
             <option value="claude_dropped_v1_keep">Claude dropped a v1 keep</option>
             <option value="claude_drop_any">Claude any drop (medium effort)</option>
+            <option value="claude_drop_other">Claude drop_other (custom reason)</option>
             <option value="claude_keep_all">Claude keep at all 3 efforts</option>
+            <option value="claude_use_yolo_true">Claude keep + use YOLO crop</option>
+            <option value="claude_use_yolo_false">Claude keep + use FULL image</option>
           </select>
         </div>
 
@@ -395,7 +398,16 @@
                   <span v-if="modalImage[`claude_${effort}_confidence`]" style="color:#666; margin-left:0.5rem">
                     ({{ (modalImage[`claude_${effort}_confidence`] * 100).toFixed(0) }}%)
                   </span>
+                  <span v-if="modalImage[`claude_${effort}_label`] === 'keep' && modalImage[`claude_${effort}_use_yolo_crop`] !== undefined && modalImage[`claude_${effort}_use_yolo_crop`] !== null"
+                        style="margin-left:0.5rem; font-size:0.85em">
+                    <span v-if="modalImage[`claude_${effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
+                    <span v-else style="color:#0ea5e9">use FULL image</span>
+                  </span>
                 </td>
+              </tr>
+              <tr v-if="modalImage[`claude_${effort}_reason`]">
+                <td>claude {{ effort }} reason</td>
+                <td><em>{{ modalImage[`claude_${effort}_reason`] }}</em></td>
               </tr>
             </template>
             <tr v-if="hasClaudeAny(modalImage) && claudeEffortsDiffer(modalImage)">
@@ -675,12 +687,31 @@ const filteredImages = computed(() => {
         const c = i.claude_medium_label
         return c && c.startsWith('drop')
       })
+    } else if (v === 'claude_drop_other') {
+      imgs = imgs.filter(i => {
+        const labels = [i.claude_low_label, i.claude_medium_label, i.claude_high_label]
+        return labels.some(l => l === 'drop_other')
+      })
     } else if (v === 'claude_keep_all') {
       imgs = imgs.filter(i =>
         i.claude_low_label === 'keep' &&
         i.claude_medium_label === 'keep' &&
         i.claude_high_label === 'keep'
       )
+    } else if (v === 'claude_use_yolo_true') {
+      imgs = imgs.filter(i => {
+        const efforts = ['low', 'medium', 'high']
+        return efforts.some(e =>
+          i[`claude_${e}_label`] === 'keep' && i[`claude_${e}_use_yolo_crop`] === true
+        )
+      })
+    } else if (v === 'claude_use_yolo_false') {
+      imgs = imgs.filter(i => {
+        const efforts = ['low', 'medium', 'high']
+        return efforts.some(e =>
+          i[`claude_${e}_label`] === 'keep' && i[`claude_${e}_use_yolo_crop`] === false
+        )
+      })
     }
   }
   if (searchText.value) {

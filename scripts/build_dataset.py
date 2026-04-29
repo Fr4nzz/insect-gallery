@@ -208,6 +208,12 @@ def main():
                 photo_id = photo_id[5:]
             claude_lookup.setdefault(photo_id, {})[f"claude_{effort}_label"] = entry.get("label")
             claude_lookup[photo_id][f"claude_{effort}_confidence"] = entry.get("confidence")
+            # New v2 schema fields (only present on the latest run; gracefully
+            # absent on older smoketest files):
+            if "use_yolo_crop" in entry:
+                claude_lookup[photo_id][f"claude_{effort}_use_yolo_crop"] = entry.get("use_yolo_crop")
+            if entry.get("reason"):
+                claude_lookup[photo_id][f"claude_{effort}_reason"] = entry.get("reason")
         print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
 
     sam3_lookup = {}
