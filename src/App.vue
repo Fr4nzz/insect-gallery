@@ -140,6 +140,23 @@
         </div>
 
         <div class="filter-group">
+          <label>Flash Lite (single img)</label>
+          <select v-model="selectedFlashLite">
+            <option value="">Any</option>
+            <option value="any">Has Flash Lite data (300 imgs)</option>
+            <option value="claude_vs_fl_disagree">Claude vs Flash Lite disagree</option>
+            <option value="fl_keep_claude_drop">Flash Lite keep, Claude dropped</option>
+            <option value="fl_drop_claude_keep">Flash Lite dropped, Claude kept</option>
+            <option value="fl_keep">Flash Lite = keep</option>
+            <option value="fl_larva">Flash Lite = larva</option>
+            <option value="fl_quality">Flash Lite = quality</option>
+            <option value="fl_multiple">Flash Lite = multiple</option>
+            <option value="fl_dead">Flash Lite = dead</option>
+            <option value="fl_other">Flash Lite = other</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Gemini 3.1 Pro</label>
           <select v-model="selectedGeminiPro">
             <option value="">Any</option>
@@ -451,6 +468,34 @@
                 <span style="color:#0ea5e9; font-weight:600">{{ claudeVsV1Disagrees(modalImage) }}</span>
               </td>
             </tr>
+            <tr v-if="modalImage.flash_lite_label">
+              <td colspan="2" style="background:#fce7f3; padding:0.5rem; font-weight:700; color:#9d174d">
+                Gemini 3.1 Flash Lite (single image per request, no grid — same 300-img set)
+              </td>
+            </tr>
+            <tr v-if="modalImage.flash_lite_label">
+              <td>flash lite</td>
+              <td>
+                <span v-if="modalImage.flash_lite_label === 'keep'" style="color:#15803d; font-weight:600">KEEP</span>
+                <span v-else style="color:#b91c1c; font-weight:600">{{ modalImage.flash_lite_label.toUpperCase() }}</span>
+                <span v-if="modalImage.flash_lite_confidence" style="color:#666; margin-left:0.5rem">
+                  ({{ (modalImage.flash_lite_confidence * 100).toFixed(0) }}%)
+                </span>
+                <span v-if="modalImage.flash_lite_label === 'keep' && modalImage.flash_lite_use_yolo_crop !== undefined && modalImage.flash_lite_use_yolo_crop !== null"
+                      style="margin-left:0.5rem; font-size:0.85em">
+                  <span v-if="modalImage.flash_lite_use_yolo_crop" style="color:#22c55e">use YOLO crop</span>
+                  <span v-else style="color:#0ea5e9">use FULL image</span>
+                </span>
+              </td>
+            </tr>
+            <tr v-if="modalImage.flash_lite_reason">
+              <td>flash lite reason</td>
+              <td><em>{{ modalImage.flash_lite_reason }}</em></td>
+            </tr>
+            <tr v-if="modalImage.flash_lite_label && hasClaudeAny(modalImage) && claudeVsFlashLiteDisagree(modalImage)">
+              <td>claude vs flash lite</td>
+              <td style="color:#9d174d; font-weight:600">{{ claudeVsFlashLiteDisagree(modalImage) }}</td>
+            </tr>
             <tr v-if="hasGeminiProAny(modalImage)">
               <td colspan="2" style="background:#ede9fe; padding:0.5rem; font-weight:700; color:#5b21b6">
                 Gemini 3.1 Pro (Vertex Batch, same 300-image diverse set as Claude)
@@ -551,6 +596,7 @@ const selectedV3 = ref('')
 const selectedClaude = ref('')
 const selectedCodex = ref('')
 const selectedGeminiPro = ref('')
+const selectedFlashLite = ref('')
 const searchText = ref('')
 const viewMode = ref('grid')
 const visibleCount = ref(100)
@@ -640,6 +686,18 @@ function geminiProEffortsDiffer(img) {
     .filter(Boolean)
   if (labels.length < 2) return false
   return labels.some(l => l !== labels[0])
+}
+
+function claudeVsFlashLiteDisagree(img) {
+  const fl = img.flash_lite_label
+  const cl = img.claude_medium_label || img.claude_high_label || img.claude_low_label
+  if (!fl || !cl) return null
+  if (fl === cl) return null
+  const flKeep = fl === 'keep'
+  const clKeep = cl === 'keep'
+  if (clKeep && !flKeep) return `Flash Lite drops where Claude keeps (${fl})`
+  if (!clKeep && flKeep) return `Flash Lite keeps where Claude drops (${cl})`
+  return `Different drop reason: claude=${cl} flash_lite=${fl}`
 }
 
 function claudeVsGeminiProDisagree(img) {
@@ -906,6 +964,26 @@ const filteredImages = computed(() => {
         const labels = codexCombos.map(c => i[`codex_${c.short}_${c.effort}_label`])
         return labels.every(l => l === 'keep')
       })
+    }
+  }
+  if (selectedFlashLite.value) {
+    const v = selectedFlashLite.value
+    const fl = (i) => i.flash_lite_label
+    const cl = (i) => i.claude_medium_label || i.claude_low_label || i.claude_high_label
+    const matchLbl = (i, name) => fl(i) === name || fl(i) === `drop_${name}`
+    if (v === 'any') {
+      imgs = imgs.filter(i => fl(i))
+    } else if (v === 'claude_vs_fl_disagree') {
+      imgs = imgs.filter(i => fl(i) && cl(i) && fl(i) !== cl(i))
+    } else if (v === 'fl_keep_claude_drop') {
+      imgs = imgs.filter(i => fl(i) === 'keep' && cl(i) && cl(i) !== 'keep')
+    } else if (v === 'fl_drop_claude_keep') {
+      imgs = imgs.filter(i => fl(i) && fl(i) !== 'keep' && cl(i) === 'keep')
+    } else if (v === 'fl_keep') {
+      imgs = imgs.filter(i => fl(i) === 'keep')
+    } else {
+      const name = v.replace('fl_', '')
+      imgs = imgs.filter(i => matchLbl(i, name))
     }
   }
   if (selectedGeminiPro.value) {

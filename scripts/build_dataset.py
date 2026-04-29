@@ -314,6 +314,33 @@ def main():
                 claude_lookup[photo_id][f"claude_{effort}_reason"] = entry.get("reason")
         print(f"    Claude {effort} smoke-test lookup: {len(raw)} entries")
 
+    # Gemini 3.1 Flash Lite, ONE image per request (no grid). Drop-in
+    # replacement for the gridded Pro curator that the Neocyba metrosideros
+    # adjudication showed gets boosted accuracy from single-image input.
+    flash_lite_lookup = {}
+    for path in sorted(BASE.glob("curation_flash_lite_*.json"),
+                       key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            raw = load_json(path)
+        except Exception:
+            continue
+        for rel_key, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            photo_id = os.path.splitext(os.path.basename(rel_key))[0]
+            if photo_id.startswith("gbif_"):
+                photo_id = photo_id[5:]
+            slot = flash_lite_lookup.setdefault(photo_id, {})
+            if slot.get("flash_lite_label"):  # newest-first wins
+                continue
+            slot["flash_lite_label"] = normalize_curation_label(entry.get("label"))
+            slot["flash_lite_confidence"] = entry.get("confidence")
+            if "use_yolo_crop" in entry:
+                slot["flash_lite_use_yolo_crop"] = entry.get("use_yolo_crop")
+            if entry.get("reason"):
+                slot["flash_lite_reason"] = entry.get("reason")
+        print(f"    Flash Lite lookup: {len(raw)} entries from {path.name}")
+
     # Gemini 3.1 Pro batch curation. Same image manifest as Claude (the
     # diverse-300 stratified sample). Each entry records its `effort`
     # (low/medium/high) so we key the field names by effort — same pattern
@@ -448,6 +475,7 @@ def main():
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
             **(gemini_pro_lookup.get(photo_id, {})),
+            **(flash_lite_lookup.get(photo_id, {})),
             **(codex_lookup.get(photo_id, {})),
         }
 
@@ -496,6 +524,7 @@ def main():
             **(v3_lookup.get(photo_id, {})),
             **(claude_lookup.get(photo_id, {})),
             **(gemini_pro_lookup.get(photo_id, {})),
+            **(flash_lite_lookup.get(photo_id, {})),
             **(codex_lookup.get(photo_id, {})),
         }
 
@@ -593,8 +622,12 @@ def main():
     def _has_gemini_pro(r):
         return any(r.get(f"gemini_pro_{e}_label") for e in ("low", "medium", "high"))
 
+    def _has_flash_lite(r):
+        return bool(r.get("flash_lite_label"))
+
     pinned_ids = {r["id"] for r in all_records
-                  if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)}
+                  if _has_claude(r) or _has_codex(r) or _has_gemini_pro(r)
+                  or _has_flash_lite(r)}
     for r in all_records:
         if r["id"] in pinned_ids and r["id"] not in sampled_ids:
             sampled.append(r)
