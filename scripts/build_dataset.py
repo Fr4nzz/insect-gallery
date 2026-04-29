@@ -368,8 +368,12 @@ def main():
             slot[f"{field_prefix}_confidence"] = entry.get("confidence")
             if "use_yolo_crop" in entry:
                 slot[f"{field_prefix}_use_yolo_crop"] = entry.get("use_yolo_crop")
-            if "keep_segments" in entry:
+            if "keep_segments" in entry:  # legacy schema (s)
                 slot[f"{field_prefix}_keep_segments"] = entry.get("keep_segments")
+            if "keep_full" in entry:  # new schema: kf (full-coverage)
+                slot[f"{field_prefix}_keep_full"] = entry.get("keep_full")
+            if "keep_partial" in entry:  # new schema: kp (partial-coverage)
+                slot[f"{field_prefix}_keep_partial"] = entry.get("keep_partial")
             if "use_full_image" in entry:
                 slot[f"{field_prefix}_use_full_image"] = entry.get("use_full_image")
             if entry.get("reason"):

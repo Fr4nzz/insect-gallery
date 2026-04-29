@@ -544,12 +544,25 @@
                     <span v-if="modalImage[`flash_lite_seg_single_${combo.effort}_use_yolo_crop`]" style="color:#22c55e">use YOLO crop</span>
                     <span v-else style="color:#0ea5e9">use FULL image</span>
                   </span>
-                  <!-- multi mode: full_image flag + segment list -->
+                  <!-- multi mode: full_image flag + kf/kp segment lists -->
                   <span v-if="combo.mode === 'multi' && modalImage[`flash_lite_seg_multi_${combo.effort}_label`] === 'keep'"
                         style="margin-left:0.5rem; font-size:0.85em">
-                    <span v-if="modalImage[`flash_lite_seg_multi_${combo.effort}_use_full_image`]" style="color:#0ea5e9">use FULL image</span>
-                    <span v-else-if="(modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).length > 0" style="color:#22c55e">
-                      keep segs [{{ (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).join(', ') }}]
+                    <span v-if="(modalImage[`flash_lite_seg_multi_${combo.effort}_keep_full`] || []).length > 0" style="color:#22c55e">
+                      kf [{{ (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_full`] || []).join(', ') }}]
+                    </span>
+                    <span v-if="(modalImage[`flash_lite_seg_multi_${combo.effort}_keep_partial`] || []).length > 0" style="color:#f59e0b; margin-left:0.4rem">
+                      kp [{{ (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_partial`] || []).join(', ') }}]
+                    </span>
+                    <span v-if="modalImage[`flash_lite_seg_multi_${combo.effort}_use_full_image`]" style="color:#0ea5e9; margin-left:0.4rem">
+                      use FULL image
+                    </span>
+                    <!-- legacy fallback for v2 schema (only `s` was set) -->
+                    <span v-if="(modalImage[`flash_lite_seg_multi_${combo.effort}_keep_full`] || []).length === 0
+                              && (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_partial`] || []).length === 0
+                              && !modalImage[`flash_lite_seg_multi_${combo.effort}_use_full_image`]
+                              && (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).length > 0"
+                          style="color:#22c55e">
+                      legacy segs [{{ (modalImage[`flash_lite_seg_multi_${combo.effort}_keep_segments`] || []).join(', ') }}]
                     </span>
                   </span>
                 </td>
